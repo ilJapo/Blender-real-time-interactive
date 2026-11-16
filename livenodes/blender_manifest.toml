@@ -1,0 +1,17 @@
+schema_version = "1.0.0"
+
+id = "livenodes"
+version = "0.1.0"
+name = "Live Nodes"
+tagline = "Real-time interactive visuals: channels, GPU textures, audio, MIDI, OSC"
+maintainer = "Live Nodes contributors"
+type = "add-on"
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-3.0-or-later"]
+tags = ["Node", "Animation", "Render"]
+
+[permissions]
+network = "OSC, Art-Net DMX and UDP input/output"
+files = "Audio, video and image input; recording output"
+camera = "Video Device In node"
+microphone = "Audio Device In node"
