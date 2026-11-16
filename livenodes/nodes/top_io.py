@@ -6,7 +6,7 @@ import gpu
 import numpy as np
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, PointerProperty, StringProperty
 
-from ..core import deps, gpu_util, services
+from ..core import deps, gpu_util, services, stream
 from ..core.data import Channels
 from ..core.tree import LNNode, LNTopNode
 from .top_gen import PASS_FRAG
@@ -501,3 +501,97 @@ class _ImageHolder:
 
 classes = (LN_OT_new_image, LN_ImageTOP, LN_VideoDeviceTOP, LN_MovieFileTOP, LN_RenderTOP, LN_TopToCHOP,
            LN_TopToImage, LN_OutTOP, LN_MovieFileOutTOP)
+
+
+# -- video sharing --------------------------------------------------------
+ENCODE_FRAG = """
+void main(){
+  vec4 c = texture(uIn0, vec2(vUV.x, 1.0 - vUV.y));      /* row 0 = top of the image */
+  vec3 rgb = c.a > 1.0e-5 ? c.rgb / c.a : c.rgb;          /* straight alpha */
+  rgb = clamp(rgb, 0.0, 1.0);
+  if (uSRGB == 1) rgb = mix(rgb * 12.92, 1.055 * pow(rgb, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), rgb));
+  fragColor = vec4(rgb, uAlpha == 1 ? clamp(c.a, 0.0, 1.0) : 1.0);
+}
+"""
+
+
+def encode_rgba8(ctx, tex, size, srgb=True, alpha=True, slot="encode"):
+    """GPU texture -> (h, w, 4) uint8, top row first, straight alpha.
+    The conversion runs on the GPU so only 8-bit pixels are read back."""
+    st = ctx.state
+    tgt = st.get(slot)
+    if tgt is None:
+        tgt = st[slot] = gpu_util.Target()
+    tgt.ensure(size[0], size[1], 'RGBA8')
+    compiled = gpu_util.shader(ENCODE_FRAG, (('INT', 'uSRGB'), ('INT', 'uAlpha')), 1)
+    gpu_util.draw(tgt, compiled, {"uSRGB": srgb, "uAlpha": alpha}, [tex], ctx.time)
+    with tgt.off.bind():
+        fb = gpu.state.active_framebuffer_get()
+        buf = fb.read_color(0, 0, size[0], size[1], 4, 0, 'UBYTE')
+    return np.asarray(buf, dtype=np.uint8).reshape(size[1], size[0], 4)
+
+
+class LN_StreamOutTOP(LNTopNode, bpy.types.Node):
+    """Shares the image live with other apps: NDI (network, any OS), Spout (Windows), Syphon (macOS)"""
+    bl_idname = "LN_StreamOutTOP"
+    bl_label = "Stream Out TOP"
+    ln_category = "TOP Output"
+    ln_family = 'OUT'
+    ln_params = False
+
+    protocol: EnumProperty(name="Protocol", items=[
+        ('NDI', "NDI", "Video over the network to any NDI receiver (OBS, vMix, Resolume, TouchDesigner...)"),
+        ('SPOUT', "Spout", "Texture sharing with apps on this Windows PC"),
+        ('SYPHON', "Syphon", "Texture sharing with apps on this Mac")],
+        default=stream.default_protocol())
+    sender_name: StringProperty(name="Name", default="Blender Live", description="How the stream appears in receiving apps")
+    active: BoolProperty(name="Active", default=True)
+    alpha: BoolProperty(name="Alpha", default=True, description="Send transparency (otherwise the image is opaque)")
+    srgb: BoolProperty(name="sRGB", default=True, description="Encode to sRGB like a normal video/display image (off = raw linear values)")
+    max_fps: FloatProperty(name="Max FPS", default=60.0, min=0.0, description="Upper limit on frames sent per second (0 = every cook)")
+    only_connected: BoolProperty(name="Only When Connected", default=True,
+                                 description="Skip the GPU readback while no receiver is connected (NDI and Syphon)")
+
+    def ln_init(self):
+        self.add_in('TOP', "In")
+        self.add_out('CHOP', "Info")
+
+    def ln_draw(self, context, layout):
+        layout.prop(self, "protocol", text="")
+        layout.prop(self, "sender_name", text="")
+        row = layout.row(align=True)
+        row.prop(self, "active", toggle=True, icon='PLAY')
+        row.prop(self, "alpha", toggle=True)
+
+    def ln_draw_ext(self, context, layout):
+        layout.prop(self, "srgb")
+        layout.prop(self, "max_fps")
+        layout.prop(self, "only_connected")
+        super().ln_draw_ext(context, layout)
+
+    def cook(self, ctx, inp):
+        tex = inp.get("In")
+        st = ctx.state
+        st["tex"] = tex  # node preview
+        info = {"active": 0.0, "receivers": 0.0, "sent": float(st.get("sent", 0)), "width": 0.0, "height": 0.0}
+        if tex is None or not self.active:
+            return Channels.from_dict(info)
+        stream.check_platform(self.protocol)
+        name = self.sender_name.strip() or "Blender Live"
+        sender = services.get("stream_out", (self.protocol, name), lambda: stream.SENDERS[self.protocol](name))
+        receivers = sender.has_receivers()
+        size = self.out_size(ctx, tex)
+        info.update(active=1.0, receivers=1.0 if receivers else 0.0, width=size[0], height=size[1])
+        if self.only_connected and not receivers:
+            return Channels.from_dict(info)
+        if self.max_fps > 0 and ctx.time - st.get("last", -1e9) < 1.0 / self.max_fps - 1e-4 and ctx.time >= st.get("last", 0.0):
+            return Channels.from_dict(info)
+        st["last"] = ctx.time
+        image = encode_rgba8(ctx, tex, size, self.srgb, self.alpha)
+        sender.send(image, self.max_fps or ctx.fps, self.alpha)
+        st["sent"] = st.get("sent", 0) + 1
+        info["sent"] = float(st["sent"])
+        return Channels.from_dict(info)
+
+
+classes = classes + (LN_StreamOutTOP,)

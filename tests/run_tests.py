@@ -3,6 +3,7 @@
 Registers the add-on in a fresh Blender, builds networks and cooks them with a
 fixed clock, checking channel values, GPU textures and Blender side effects.
 """
+import math
 import os
 import socket
 import sys
@@ -78,7 +79,7 @@ def pixels(tex):
 def every_node_cooks_unconnected():
     t = new_tree()
     for cls in livenodes.node_classes():
-        if cls.bl_idname in {"LN_AudioDeviceInCHOP", "LN_MidiInCHOP", "LN_MidiOutCHOP", "LN_VideoDeviceTOP",
+        if cls.bl_idname in {"LN_AudioDeviceInCHOP", "LN_MidiInCHOP", "LN_MidiOutCHOP", "LN_VideoDeviceTOP", "LN_StreamOutTOP",
                              "LN_RenderTOP", "LN_OscInCHOP", "LN_DmxInCHOP", "LN_UdpInDAT", "LN_GlslTOP"}:
             continue  # need devices, a window, ports or a shader text
         node(t, cls.bl_idname)
@@ -649,6 +650,213 @@ def record_png_sequence():
     cook(3)
     no_errors()
     assert sorted(os.listdir(d)) == ["rec_00001.png", "rec_00002.png", "rec_00003.png"], os.listdir(d)
+
+
+class _FakeSpoutSender:
+    calls = []
+
+    def setSenderName(self, name):
+        self.calls.append(("name", name))
+
+    def createOpenGL(self):
+        self.calls.append(("createOpenGL",))
+        return True
+
+    def sendImage(self, buf, width, height, fmt, invert, fbo):
+        self.calls.append(("send", np.array(buf, copy=True), width, height, fmt, invert, fbo))
+        return True
+
+    def setFrameSync(self, name):
+        self.calls.append(("sync", name))
+
+    def releaseSender(self):
+        self.calls.append(("release",))
+
+    def closeOpenGL(self):
+        self.calls.append(("closeOpenGL",))
+
+
+def _fake_modules(platform):
+    """Stand-ins with the exact call signatures of SpoutGL 0.1.1 and syphon-python 0.2.0."""
+    import types
+    spout = types.ModuleType("SpoutGL")
+    spout.SpoutSender = _FakeSpoutSender
+    enums = types.ModuleType("SpoutGL.enums")
+    enums.GL_RGBA = 0x1908
+    spout.enums = enums
+    syphon = types.ModuleType("syphon")
+    published = []
+
+    class Server:
+        def __init__(self, name):
+            self.name = name
+            self.device = "metal-device"
+            self.has_clients = True
+
+        def publish_frame_texture(self, texture):
+            published.append(np.array(texture["data"], copy=True))
+
+        def stop(self):
+            published.append("stopped")
+
+    syphon.SyphonMetalServer = Server
+    raw = types.ModuleType("syphon.utils.raw")
+    raw.create_mtl_texture = lambda device, w, h: {"device": device, "size": (w, h), "data": None}
+    npu = types.ModuleType("syphon.utils.numpy")
+
+    def copy(image, texture):
+        assert image.shape == (texture["size"][1], texture["size"][0], 4) and image.dtype == np.uint8
+        texture["data"] = image
+    npu.copy_image_to_mtl_texture = copy
+    mods = {"SpoutGL": spout, "SpoutGL.enums": enums, "syphon": syphon, "syphon.utils": types.ModuleType("syphon.utils"),
+            "syphon.utils.raw": raw, "syphon.utils.numpy": npu}
+    return mods, published
+
+
+def _with_platform(platform, fn):
+    from livenodes.core import deps
+    mods, published = _fake_modules(platform)
+    saved_platform, saved_mods = sys.platform, {k: sys.modules.get(k) for k in mods}
+    sys.modules.update(mods)
+    deps._cache.pop("SpoutGL", None)
+    deps._cache.pop("syphon", None)
+    sys.platform = platform
+    try:
+        return fn(published)
+    finally:
+        sys.platform = saved_platform
+        for k, v in saved_mods.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+        deps._cache.pop("SpoutGL", None)
+        deps._cache.pop("syphon", None)
+
+
+def _stream_tree(protocol, rgba=(1.0, 0.0, 0.0, 0.5)):
+    t = new_tree()
+    ramp = node(t, "LN_RampTOP", angle=math.pi / 2)  # black at the bottom, white at the top
+    c = node(t, "LN_ConstantTOP", rgba=rgba)
+    comp = node(t, "LN_CompositeTOP", operation='MULTIPLY')
+    link(t, ramp, comp, 0, "Base")
+    link(t, c, comp, 0, "Layers")
+    s = node(t, "LN_StreamOutTOP", protocol=protocol, sender_name="LN Test", max_fps=0.0)
+    link(t, ramp, s)
+    return t, s, c
+
+
+@test
+def stream_encode_orientation_srgb_alpha():
+    from livenodes.nodes.top_io import encode_rgba8
+    t = new_tree()
+    ramp = node(t, "LN_RampTOP", angle=math.pi / 2)
+    half = node(t, "LN_ConstantTOP", rgba=(0.5, 0.5, 0.5, 1.0))
+    red = node(t, "LN_ConstantTOP", rgba=(1.0, 0.0, 0.0, 0.5))
+    cook()
+
+    class Ctx:
+        state = {}
+        time = 0.0
+    img = encode_rgba8(Ctx, out(t, ramp), (64, 36))
+    assert img.shape == (36, 64, 4) and img.dtype == np.uint8
+    # row 0 is the top; the last row of the ramp is 0.014 linear = ~31 in sRGB
+    assert img[0, 10, 0] > 250 and img[-1, 10, 0] < 40, (img[0, 10], img[-1, 10])
+    img = encode_rgba8(Ctx, out(t, half), (8, 8))
+    assert abs(int(img[4, 4, 0]) - 188) <= 1, img[4, 4]  # linear 0.5 -> sRGB 188
+    img = encode_rgba8(Ctx, out(t, red), (8, 8))
+    assert tuple(img[4, 4]) in {(255, 0, 0, 127), (255, 0, 0, 128)}, img[4, 4]  # un-premultiplied
+    img = encode_rgba8(Ctx, out(t, red), (8, 8), srgb=False, alpha=False)
+    assert img[4, 4, 3] == 255
+
+
+@test
+def stream_out_spout():
+    def run(_published):
+        _FakeSpoutSender.calls.clear()
+        t, s, _ = _stream_tree('SPOUT')
+        cook(2)
+        no_errors()
+        sends = [c for c in _FakeSpoutSender.calls if c[0] == "send"]
+        assert len(sends) == 2, _FakeSpoutSender.calls
+        _, img, w, h, fmt, invert, fbo = sends[0]
+        assert (w, h, fmt, invert, fbo) == (64, 36, 0x1908, False, 0)
+        assert img.shape == (36, 64, 4) and img[0, 0, 0] > 250 and img[-1, 0, 0] < 40
+        assert ("name", "LN Test") in _FakeSpoutSender.calls and ("sync", "LN Test") in _FakeSpoutSender.calls
+        # Blender draws with Vulkan here, so Spout must bring its own OpenGL context
+        assert (("createOpenGL",) in _FakeSpoutSender.calls) == (gpu.platform.backend_type_get() != 'OPENGL')
+        assert out(t, s).get("sent") == 2.0
+        ENGINE.stop()
+        assert ("release",) in _FakeSpoutSender.calls
+    _with_platform("win32", run)
+
+
+@test
+def stream_out_syphon():
+    def run(published):
+        t, s, _ = _stream_tree('SYPHON')
+        s.res_mode = 'CUSTOM'
+        s.res_x, s.res_y = 32, 16
+        cook(3)
+        no_errors()
+        assert len(published) == 3 and published[0].shape == (16, 32, 4)
+        assert published[0][0, 0, 0] > 250 and published[0][-1, 0, 0] < 60
+        assert out(t, s).get("receivers") == 1.0 and out(t, s).get("width") == 32.0
+        ENGINE.stop()
+        assert published[-1] == "stopped"
+    _with_platform("darwin", run)
+
+
+@test
+def stream_out_wrong_platform_is_reported():
+    t, s, _ = _stream_tree('SYPHON' if sys.platform != "darwin" else 'SPOUT')
+    cook()
+    assert "only available on" in ENGINE.errors.get(f"{t.name}\x00{s.name}", ""), ENGINE.errors
+
+
+@test
+def stream_out_ndi_loopback():
+    try:
+        import NDIlib as ndi
+    except ImportError:
+        print("    (skipped: ndi-python not installed)")
+        return
+    t, s, _ = _stream_tree('NDI')
+    s.only_connected = True
+    cook()
+    no_errors()
+    assert out(t, s).get("receivers") == 0.0 and out(t, s).get("sent") == 0.0  # nobody watching: no readback
+    find_settings = ndi.FindCreate()
+    find_settings.show_local_sources = True
+    find_settings.extra_ips = "127.0.0.1"
+    finder = ndi.find_create_v2(find_settings)
+    src = None
+    for _ in range(50):
+        ndi.find_wait_for_sources(finder, 100)
+        src = next((x for x in ndi.find_get_current_sources(finder) if "LN Test" in x.ndi_name), None)
+        if src is not None:
+            break
+    assert src is not None, "NDI source not found"
+    rc = ndi.RecvCreateV3()
+    rc.color_format = ndi.RECV_COLOR_FORMAT_RGBX_RGBA
+    recv = ndi.recv_create_v3(rc)
+    ndi.recv_connect(recv, src)
+    got = None
+    for _ in range(100):
+        cook()
+        kind, video, _a, _m = ndi.recv_capture_v2(recv, 50)
+        if kind == ndi.FRAME_TYPE_VIDEO:
+            got = np.copy(video.data)
+            ndi.recv_free_video_v2(recv, video)
+            break
+    ndi.recv_destroy(recv)
+    ndi.find_destroy(finder)
+    assert got is not None, "no NDI frame received"
+    assert got.shape == (36, 64, 4), got.shape
+    # top white, bottom dark (NDI compression softens the values a little)
+    assert got[1, 5, 0] > 230 and got[-2, 5, 0] < 80, (got[1, 5], got[-2, 5])
+    assert out(t, s).get("receivers") == 1.0 and out(t, s).get("sent") >= 1.0
+    ENGINE.stop()
 
 
 @test

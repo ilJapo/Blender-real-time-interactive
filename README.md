@@ -23,9 +23,11 @@ Poi: apri un **Node Editor**, scegli il tipo di albero **Live Nodes**, premi
 **New Live Network** (o nella sidebar `N › Live › Modules & Examples` crea un esempio)
 e premi **Start** (`Ctrl+Shift+Space`).
 
-Moduli opzionali (installabili con un clic dal pannello *Modules & Examples*):
+Moduli opzionali (installabili con un clic dal pannello *Modules & Examples*,
+che mostra solo quelli adatti al tuo sistema operativo):
 `python-rtmidi` (MIDI), `sounddevice` (microfono / line-in), `opencv-python-headless`
-(webcam, file video, registrazione MP4). Tutto il resto — OSC, Art-Net/DMX, UDP,
+(webcam, file video, registrazione MP4), `ndi-python` (NDI, include il runtime NDI),
+`SpoutGL` (Spout, Windows), `syphon-python` (Syphon, macOS). Tutto il resto — OSC, Art-Net/DMX, UDP,
 audio da file, shader, compositing — funziona senza dipendenze esterne.
 
 ## Concetti
@@ -44,7 +46,7 @@ audio da file, shader, compositing — funziona senza dipendenze esterne.
 - **Perform panel**: i nodi *Control CHOP* (slider, toggle, pulsanti, XY) diventano
   un'interfaccia di controllo nella sidebar del Node Editor e della 3D View.
 
-## Nodi (88)
+## Nodi (89)
 
 **CHOP Generate** — Constant, LFO (sine/tri/ramp/square/pulse/random), Noise, Time,
 Timer, Beat (BPM, tap tempo), Pattern, Trigger (ADSR), Control.
@@ -70,7 +72,7 @@ una camera, ogni frame), Level, Blur, Transform, **Corner Pin** (projection
 mapping), Composite (12 modalità), Cross, Switch, Displace, Edge, Key (luma/chroma),
 Mirror/Kaleidoscope, Pixelate, RGB Split, Lookup, Bloom, Normal Map, Resolution,
 Null, TOP to CHOP, TOP to Image (texture live nei materiali), Out, Movie File Out
-(PNG/EXR/MP4).
+(PNG/EXR/MP4), **Stream Out** (NDI / Spout / Syphon).
 
 **DAT** — Text, Table, File In (ricarica automatica), UDP In, DAT to CHOP,
 CHOP to DAT, Format, **Script** (Python `cook(ctx, inputs)` → canali/testo/texture),
@@ -84,11 +86,29 @@ CHOP to DAT, Format, **Script** (Python `cook(ctx, inputs)` → canali/testo/tex
 3. **Channels to Geometry** — scia di un LFO → punti → Geometry Nodes instancing.
 4. **Controls, Text & OSC** — slider nel Perform panel, testo live sovrapposto, OSC in.
 
+## Stream Out: NDI, Spout, Syphon
+
+Il nodo **Stream Out TOP** condivide un'immagine live con altre applicazioni
+(OBS, vMix, Resolume, MadMapper, TouchDesigner, Millumin…):
+
+| Protocollo | Sistema | Come funziona |
+|---|---|---|
+| NDI | tutti | video compresso sulla rete locale; con *Only When Connected* nessun costo finché nessuno riceve |
+| Spout | Windows | texture condivisa DirectX; se Blender usa Vulkan, Spout crea un proprio contesto OpenGL |
+| Syphon | macOS | texture condivisa Metal |
+
+Su GPU il nodo converte in sRGB 8 bit, toglie la premoltiplicazione dell'alpha e
+capovolge l'immagine, poi legge i pixel. La lettura GPU → CPU resta il costo
+principale (Blender non espone l'handle nativo delle sue texture). Riduci *Max FPS*
+o la risoluzione del nodo se serve. L'uscita *Info* riporta receivers, frame inviati
+e risoluzione.
+
 ## Test
 
 ```bash
 pip install bpy==5.3.0            # Blender come modulo Python
-python3 tests/run_tests.py        # 38 test, headless (GPU software va bene)
+python3 tests/run_tests.py        # 43 test, headless (GPU software va bene)
+pip install ndi-python            # opzionale: attiva il test NDI reale in loopback
 ```
 
 I test cucinano reti reali con un clock fisso e verificano valori dei canali,
@@ -105,8 +125,6 @@ tramite EEVEE).
 
 Non (ancora) coperto, per limiti reali più che di tempo:
 
-- **NDI / Spout / Syphon**: nessuna binding Python standard; si possono aggiungere
-  come moduli opzionali, ma condividere texture GPU-GPU da Python non è possibile.
 - **Prestazioni**: ogni nodo è Python; il cook dei CHOP costa ~10 µs/nodo
   (61 nodi ≈ 0.8 ms), le TOP sono shader GPU e scalano bene. TOP → materiale passa
   dalla CPU (readback) — usa *Every Nth Frame* o risoluzioni moderate.

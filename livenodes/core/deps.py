@@ -3,12 +3,20 @@ import importlib
 import subprocess
 import sys
 
-# module name -> (pip package, what it enables)
+# module name -> (pip package, what it enables, platform or None for all)
 OPTIONAL = {
-    "rtmidi": ("python-rtmidi", "MIDI In / MIDI Out"),
-    "sounddevice": ("sounddevice", "Audio Device In (live microphone / line in)"),
-    "cv2": ("opencv-python-headless", "Video In (webcam and movie files)"),
+    "rtmidi": ("python-rtmidi", "MIDI In / MIDI Out", None),
+    "sounddevice": ("sounddevice", "Audio Device In (live microphone / line in)", None),
+    "cv2": ("opencv-python-headless", "Video In (webcam and movie files)", None),
+    "NDIlib": ("ndi-python", "NDI Out (video over the network)", None),
+    "SpoutGL": ("SpoutGL", "Spout Out (texture sharing)", "win32"),
+    "syphon": ("syphon-python", "Syphon Out (texture sharing)", "darwin"),
 }
+
+
+def available_here():
+    """Optional modules that make sense on this operating system."""
+    return {m: v for m, v in OPTIONAL.items() if v[2] is None or v[2] == sys.platform}
 
 _cache = {}
 

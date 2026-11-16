@@ -149,7 +149,7 @@ class LN_PT_extras(bpy.types.Panel):
         layout = self.layout
         col = layout.column(align=True)
         col.label(text="Optional modules:")
-        for mod, (pkg, what) in deps.OPTIONAL.items():
+        for mod, (pkg, what, _platform) in deps.available_here().items():
             row = col.row(align=True)
             ok = deps.load(mod) is not None
             row.label(text=what, icon='CHECKMARK' if ok else 'BLANK1')
