@@ -874,6 +874,22 @@ def text_top_font_and_tracking():
 
 
 @test
+def text_top_redraws_only_on_change():
+    t = new_tree()
+    txt = node(t, "LN_TextDAT", value="ONE")
+    tx = node(t, "LN_TextTOP", size=0.4)
+    link(t, txt, tx, 0, "Text")
+    cook()
+    key = ENGINE.states[f"{t.name}\x00{tx.name}"]["drawn"]
+    first = pixels(out(t, tx)).copy()
+    cook(3)
+    assert ENGINE.states[f"{t.name}\x00{tx.name}"]["drawn"] is key  # untouched: no redraw
+    txt.value = "TWO LINES\nOF TEXT"
+    cook()
+    assert not np.array_equal(first, pixels(out(t, tx)))
+
+
+@test
 def scene_resolution_mode():
     t = new_tree()
     p = node(t, "LN_PatternCHOP", samples=16)

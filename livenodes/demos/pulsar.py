@@ -347,10 +347,9 @@ def build(context):
                       path='node_tree.nodes["Emission"].inputs["Strength"].default_value', channel="energy")
     for e in (core_exp, spin_exp, glow_exp):
         b.link(uniforms, e)
-    sway = b.node("LN_LfoCHOP", F, -1000, -1060, "Camera Sway", channel="sway", frequency=0.045,
-                  amplitude=math.radians(16.0), wave='SINE')
-    sway_exp = b.node("LN_ExportCHOP", F, -700, -1060, "Camera Rig", ob=objs["rig"], path="rotation_euler[0]")
-    b.link(sway, sway_exp)
+    sway_exp = b.node("LN_ExportCHOP", F, -700, -1060, "Camera Rig", ob=objs["rig"], path="rotation_euler[0]",
+                      channel="sway")
+    b.link(uniforms, sway_exp)
     render = b.node("LN_RenderTOP", F, -300, -400, "3D Scene", camera=objs["cam"], shading='RENDERED')
 
     # 07 POST ---------------------------------------------------------------

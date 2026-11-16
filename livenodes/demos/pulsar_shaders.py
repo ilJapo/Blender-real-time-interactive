@@ -128,6 +128,7 @@ def cook(ctx, inputs):
         "block": 1.0 + 14.0 * glitch * glitch,                  # mosaic (Pixelate TOP)
         "core_scale": 1.0 + 0.06 * kick + 0.05 * g("bass", 0.0),
         "spin": ctx.time * 0.11,
+        "sway": math.radians(16.0) * math.sin(ctx.time * 2.0 * math.pi * 0.045),   # camera rig, from absolute time
         "energy": 1.2 + 3.0 * g("level", 0.0) + 2.5 * kick,
         "bar_num": math.floor(beats / 4.0) % 8 + 1, "beat_num": math.floor(beats) % 4 + 1,
     }

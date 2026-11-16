@@ -287,6 +287,13 @@ class LN_TextTOP(_Gen, bpy.types.Node):
             text = "\n".join("  ".join(str(c) for c in row) for row in dat)
         w, h = self.out_size(ctx)
         tgt = self.target(ctx, (w, h))
+        # text rarely changes: redraw only when what we would draw changes
+        key = (text, w, h, ctx.tex_format, p.size, tuple(p.position), self.align, tuple(p.font_color),
+               tuple(p.background), self.font, self.font_file, p.tracking)
+        st = ctx.state
+        if st.get("drawn") == key and st.get("drawn_target") is tgt.off:
+            return tgt.texture
+        st["drawn"], st["drawn_target"] = key, tgt.off
         px = max(p.size * h, 1.0)
         lines = text.split("\n")
         bg = p.background

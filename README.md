@@ -68,7 +68,10 @@ qualsiasi: *Live › Modules & Examples › PULSAR*.
 
 Palette: indaco `#1B1440`, viola elettrico `#7B5CFF`, corallo `#FF5A36`, bianco caldo `#FFF4E6` su nero.
 
-**Video offline** (orologio Timeline, deterministico, con audio; serve ffmpeg):
+**Video offline** (orologio Timeline, deterministico, con audio; serve ffmpeg). Il video
+viene prodotto a segmenti, ciascuno in un processo nuovo con 1,5 s di pre-roll:
+Blender senza finestra non chiude mai un frame GPU e su sequenze lunghe esaurisce
+la memoria video.
 
 ```bash
 blender -b demo/pulsar.blend --python demo/render_preview.py -- pulsar.mp4 1280 720 30
@@ -152,7 +155,7 @@ e risoluzione.
 
 ```bash
 pip install bpy==5.3.0            # Blender come modulo Python
-python3 tests/run_tests.py        # 47 test, headless (GPU software va bene)
+python3 tests/run_tests.py        # 48 test, headless (GPU software va bene)
 pip install ndi-python            # opzionale: attiva il test NDI reale in loopback
 ```
 
