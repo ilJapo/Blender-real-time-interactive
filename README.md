@@ -13,11 +13,14 @@ Blender, the GPU and external devices in real time.
 
 ## Installation
 
-```bash
-cd livenodes && zip -r ../livenodes.zip . && cd ..
-```
+Download [`dist/livenodes.zip`](dist/livenodes.zip) (on GitHub: open the file, then **Download raw file**).
+In Blender: *Edit › Preferences › Get Extensions › ⌄ › Install from Disk…* → `livenodes.zip`.
 
-Blender → *Edit › Preferences › Get Extensions › ⌄ › Install from Disk…* → `livenodes.zip`.
+To rebuild the zip after changing the code:
+
+```bash
+cd livenodes && zip -r ../dist/livenodes.zip . -x '*__pycache__*' && cd ..
+```
 
 Then open a **Node Editor**, choose the **Live Nodes** tree type, press
 **New Live Network** (or create an example from the sidebar, `N › Live › Modules & Examples`)
