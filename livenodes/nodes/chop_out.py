@@ -71,6 +71,7 @@ class LN_ExportCHOP(_DataTarget, LNNode, bpy.types.Node):
     bl_label = "Export CHOP"
     ln_category = "CHOP Output"
     ln_family = 'OUT'
+    ln_writes_scene = True
 
     channel: StringProperty(name="Channel", default="", description=(
         "Channel(s) to export: empty = all in order. A vector property takes one channel per component; "
@@ -284,6 +285,7 @@ class LN_ChopToMeshCHOP(LNNode, bpy.types.Node):
     ln_category = "CHOP Output"
     ln_family = 'OUT'
     ln_params = False
+    ln_writes_scene = True
 
     target: PointerProperty(name="Mesh Object", type=bpy.types.Object, poll=lambda self, ob: ob.type == 'MESH',
                             description="Its vertices are replaced: one point per sample")

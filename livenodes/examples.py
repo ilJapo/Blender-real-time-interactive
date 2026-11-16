@@ -5,6 +5,7 @@ from bpy.props import StringProperty
 from .core.tree import TREE_ID
 
 EXAMPLES = [
+    ('PULSAR', "PULSAR  (showcase)", "Audio-reactive eclipse: GLSL, feedback, Geometry Nodes, 3D render, post, HUD"),
     ('FEEDBACK', "Feedback Visuals", "Generative texture loop with bloom, sent to an Out TOP"),
     ('AUDIO', "Audio Reactive Object", "Beat clock and audio analysis drive an object's scale and a light"),
     ('INSTANCES', "Channels to Geometry", "A trail of an LFO becomes points instanced by Geometry Nodes"),
@@ -175,7 +176,12 @@ def build_control(context):
     return t
 
 
-BUILDERS = {'FEEDBACK': build_feedback, 'AUDIO': build_audio, 'INSTANCES': build_instances, 'CONTROL': build_control}
+def build_pulsar(context):
+    from .demos import pulsar
+    return pulsar.build(context)
+
+
+BUILDERS = {'PULSAR': build_pulsar, 'FEEDBACK': build_feedback, 'AUDIO': build_audio, 'INSTANCES': build_instances, 'CONTROL': build_control}
 
 
 class LN_OT_add_example(bpy.types.Operator):

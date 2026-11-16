@@ -1,4 +1,5 @@
 """TOP generators: textures made on the GPU."""
+import os
 import bpy
 import numpy as np
 from bpy.props import (BoolProperty, EnumProperty, FloatProperty, FloatVectorProperty, IntProperty,
@@ -233,6 +234,12 @@ class LN_TextTOP(_Gen, bpy.types.Node):
     align: EnumProperty(name="Align", items=[('LEFT', "Left", ""), ('CENTER', "Center", ""), ('RIGHT', "Right", "")], default='CENTER')
     font_color: _color("Color", (1.0, 1.0, 1.0, 1.0))
     background: _color("Background", (0.0, 0.0, 0.0, 0.0))
+    font: EnumProperty(name="Font", items=[('DEFAULT', "Interface", "Blender's interface font"),
+                                           ('MONO', "Monospace", "Blender's bundled DejaVu Sans Mono"),
+                                           ('FILE', "File", "A .ttf / .otf / .woff2 font file")], default='DEFAULT')
+    font_file: StringProperty(name="Font File", subtype='FILE_PATH')
+    tracking: FloatProperty(name="Letter Spacing", default=0.0, soft_min=-0.2, soft_max=1.0,
+                            description="Extra space between letters, as a fraction of the size")
 
     def ln_init(self):
         self.add_in('DAT', "Text")
@@ -248,7 +255,26 @@ class LN_TextTOP(_Gen, bpy.types.Node):
 
     def ln_draw_ext(self, context, layout):
         layout.prop(self, "position")
+        layout.prop(self, "font")
+        if self.font == 'FILE':
+            layout.prop(self, "font_file", text="")
+        layout.prop(self, "tracking")
         super().ln_draw_ext(context, layout)
+
+    def font_id(self):
+        import blf
+        if self.font == 'DEFAULT':
+            return 0
+        if self.font == 'MONO':
+            path = os.path.join(bpy.utils.system_resource('DATAFILES', path="fonts"), "DejaVuSansMono.woff2")
+        else:
+            path = bpy.path.abspath(self.font_file)
+        fid = _FONTS.get(path)
+        if fid is None:
+            fid = _FONTS[path] = blf.load(path) if path else -1
+        if fid < 0:
+            raise ValueError(f"cannot load font {path!r}")
+        return fid
 
     def cook(self, ctx, inp):
         import blf
@@ -271,18 +297,32 @@ class LN_TextTOP(_Gen, bpy.types.Node):
                 gpu.matrix.load_identity()
                 gpu.matrix.load_projection_matrix(Matrix(((2 / w, 0, 0, -1), (0, 2 / h, 0, -1), (0, 0, -1, 0), (0, 0, 0, 1))))
                 gpu.state.blend_set('ALPHA_PREMULT')
-                font = 0
+                font = self.font_id()
                 blf.size(font, px)
                 blf.color(font, *p.font_color)
+                track = p.tracking * px
                 y = p.position[1] * h + (len(lines) - 1) * px * 0.6 - px * 0.35
                 for line in lines:
-                    tw = blf.dimensions(font, line)[0]
+                    if track:
+                        widths = [blf.dimensions(font, ch)[0] for ch in line]
+                        tw = sum(widths) + track * max(len(line) - 1, 0)
+                    else:
+                        tw = blf.dimensions(font, line)[0]
                     x = p.position[0] * w - {'LEFT': 0.0, 'CENTER': tw * 0.5, 'RIGHT': tw}[self.align]
-                    blf.position(font, x, y, 0)
-                    blf.draw(font, line)
+                    if track:
+                        for ch, cw in zip(line, widths):
+                            blf.position(font, x, y, 0)
+                            blf.draw(font, ch)
+                            x += cw + track
+                    else:
+                        blf.position(font, x, y, 0)
+                        blf.draw(font, line)
                     y -= px * 1.2
                 gpu.state.blend_set('NONE')
         return tgt.texture
+
+
+_FONTS = {}
 
 
 class LN_OT_new_shader(bpy.types.Operator):

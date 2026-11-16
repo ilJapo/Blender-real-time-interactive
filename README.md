@@ -30,6 +30,51 @@ che mostra solo quelli adatti al tuo sistema operativo):
 `SpoutGL` (Spout, Windows), `syphon-python` (Syphon, macOS). Tutto il resto — OSC, Art-Net/DMX, UDP,
 audio da file, shader, compositing — funziona senza dipendenze esterne.
 
+## Demo: PULSAR
+
+![PULSAR](demo/pulsar_poster.jpg)
+
+Un'installazione audio-reattiva completa: un sole nero la cui corona è lo spettro
+audio, scie in feedback, un anello di barre 3D (Geometry Nodes) renderizzato dal vivo
+e composto sopra, bloom, aberrazione cromatica sui kick, tone mapping, grana e un HUD
+tipografico. La colonna sonora (124 BPM, 8 battute in loop) è sintetizzata dal codice:
+nessun file esterno.
+
+**Aprirla:** installa l'addon, apri `demo/pulsar.blend`, clicca la scheda
+**PULSAR** in alto, poi **Start** nella sidebar *Live* (`N`). Oppure da un file
+qualsiasi: *Live › Modules & Examples › PULSAR*.
+
+**Suonarla** (pannello *Perform*, anche nella sidebar della 3D View):
+
+| Controllo | Effetto |
+|---|---|
+| Intensity | dimensione ed energia della corona |
+| Trails | persistenza delle scie (feedback) |
+| Hue Shift | ruota la palette |
+| 3D Ring | quantità del layer 3D |
+| Glitch · `Space` | mosaico, strappi orizzontali, split RGB |
+| Flash · `F` | lampo bianco |
+
+**Com'è fatta** — 57 nodi in 8 frame numerati, da leggere da sinistra a destra:
+
+1. **AUDIO** — loop → analisi (level / bass / mid / high / kick) e spettro a 64 bande; il kick diventa un inviluppo.
+2. **PERFORM** — i controlli sopra, tastiera inclusa.
+3. **BRAIN** — un nodo *Script* (`pulsar_brain.py`) che impacchetta tutto in canali con nome: i primi 16 sono le uniform degli shader, gli altri pilotano i parametri dei nodi per nome (`rotate`, `amount`, `block`, `core_scale`…).
+4. **ECLIPSE** — shader GLSL (`pulsar_eclipse.glsl`) che legge lo spettro come texture.
+5. **FEEDBACK** — zoom, vortice, deriva di colore: la corona lascia scie che si espandono.
+6. **3D** — lo spettro diventa 96 punti (`pulsar_ring.py` → CHOP to Mesh), istanziati come barre da Geometry Nodes; nucleo, rotazione, glow del materiale e camera sono guidati da Export CHOP; *Render TOP* lo disegna ogni frame. Camera ortografica: il nucleo 3D coincide sempre col disco 2D.
+7. **POST** — bloom, split RGB, mosaico, shader di finitura (`pulsar_finish.glsl`: ACES, vignetta, scanline, grana).
+8. **OUTPUT** — HUD (*Format DAT* + *Text TOP* monospace), *Out TOP*, *Stream Out* (spento: attivalo per mandarlo a OBS/Resolume via NDI/Spout/Syphon).
+
+Palette: indaco `#1B1440`, viola elettrico `#7B5CFF`, corallo `#FF5A36`, bianco caldo `#FFF4E6` su nero.
+
+**Video offline** (orologio Timeline, deterministico, con audio; serve ffmpeg):
+
+```bash
+blender -b demo/pulsar.blend --python demo/render_preview.py -- pulsar.mp4 1280 720 30
+python3 demo/build_demo.py      # rigenera pulsar.blend e pulsar_loop.wav
+```
+
 ## Concetti
 
 - **Engine**: un timer cucina tutte le reti a *Target FPS* (default 60). Modalità
@@ -107,7 +152,7 @@ e risoluzione.
 
 ```bash
 pip install bpy==5.3.0            # Blender come modulo Python
-python3 tests/run_tests.py        # 43 test, headless (GPU software va bene)
+python3 tests/run_tests.py        # 47 test, headless (GPU software va bene)
 pip install ndi-python            # opzionale: attiva il test NDI reale in loopback
 ```
 
@@ -128,8 +173,9 @@ Non (ancora) coperto, per limiti reali più che di tempo:
 - **Prestazioni**: ogni nodo è Python; il cook dei CHOP costa ~10 µs/nodo
   (61 nodi ≈ 0.8 ms), le TOP sono shader GPU e scalano bene. TOP → materiale passa
   dalla CPU (readback) — usa *Every Nth Frame* o risoluzioni moderate.
-- **Render TOP** usa il disegno del viewport ed è il nodo più "fragile": serve
-  una 3D View aperta.
+- **Render TOP** in tempo reale usa il disegno della viewport (overlay esclusi) e
+  serve una 3D View aperta; in modalità *Final Render* usa il motore di render
+  (lento, per esportazioni offline con l'orologio Timeline).
 - **COMP / pannelli UI personalizzati, Kinect/Leap/sensori, WebSocket/Web Server DAT,
   timeline a cue, cooking multi-thread**: non presenti. Si possono scrivere come
   *Script* node o come nuovi nodi (ogni nodo è una classe con un metodo `cook`).

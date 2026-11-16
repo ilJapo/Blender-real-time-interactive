@@ -95,6 +95,7 @@ class LN_AudioFileInCHOP(LNNode, bpy.types.Node):
 
     def ln_init(self):
         self.add_out('CHOP')
+        self.add_out('CHOP', "Info")
 
     def ln_draw(self, context, layout):
         layout.prop(self, "filepath", text="")
@@ -129,7 +130,15 @@ class LN_AudioFileInCHOP(LNNode, bpy.types.Node):
         rate = st["rate"]
         length = data.shape[1] / rate
         handle = st.get("handle")
-        if p.play and handle is None and "nodevice" not in st:
+        timeline = ctx.scene.livenodes.time_mode == 'TIMELINE'
+        if timeline:
+            # frame-by-frame rendering: follow the clock exactly, no speaker playback
+            self._stop(st)
+            st.pop("handle", None)
+            handle = None
+            if p.play:
+                st["pos"] = ctx.time % length if p.loop else min(ctx.time, length)
+        elif p.play and handle is None and "nodevice" not in st:
             try:
                 dev = st["device"] = aud.Device()
                 handle = st["handle"] = dev.play(st["sound"])
@@ -146,7 +155,7 @@ class LN_AudioFileInCHOP(LNNode, bpy.types.Node):
                     handle.pause()
             except Exception:
                 st.pop("handle", None)
-        elif p.play:
+        elif p.play and not timeline:
             st["pos"] += ctx.dt
             if st["pos"] >= length:
                 st["pos"] = st["pos"] % length if p.loop else length
@@ -156,9 +165,13 @@ class LN_AudioFileInCHOP(LNNode, bpy.types.Node):
         playing = 1.0 if p.play and st["pos"] < length else 0.0
         if not playing:
             chunk = np.zeros_like(chunk)
+        info = Channels.from_dict({"position": st["pos"], "length": length, "fraction": st["pos"] / length,
+                                   "playing": playing})
         if p.mono:
-            return Channels(["chan1"], chunk.mean(0, keepdims=True), rate=rate)
-        return Channels([f"chan{i + 1}" for i in range(len(chunk))], chunk, rate=rate)
+            out = Channels(["chan1"], chunk.mean(0, keepdims=True), rate=rate)
+        else:
+            out = Channels([f"chan{i + 1}" for i in range(len(chunk))], chunk, rate=rate)
+        return {"Out": out, "Info": info}
 
     @staticmethod
     def _stop(st):
@@ -509,6 +522,7 @@ class LN_ObjectCHOP(LNNode, bpy.types.Node):
     bl_label = "Object CHOP"
     ln_category = "CHOP Input"
     ln_params = False
+    ln_reads_scene = True
 
     target: PointerProperty(name="Object", type=bpy.types.Object)
     reference: PointerProperty(name="Relative To", type=bpy.types.Object)
@@ -591,6 +605,7 @@ class LN_PropertyInCHOP(_DataTarget, LNNode, bpy.types.Node):
     bl_label = "Property In CHOP"
     ln_category = "CHOP Input"
     ln_params = False
+    ln_reads_scene = True
 
     channel: StringProperty(name="Channel", default="value")
 

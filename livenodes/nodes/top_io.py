@@ -207,11 +207,12 @@ class LN_MovieFileTOP(LNTopNode, bpy.types.Node):
 
 
 class LN_RenderTOP(LNTopNode, bpy.types.Node):
-    """Renders the 3D scene through a camera with the viewport engine (EEVEE / Workbench) every frame"""
+    """Renders the 3D scene through a camera every frame: fast viewport drawing, or a full offline render"""
     bl_idname = "LN_RenderTOP"
     bl_label = "Render TOP"
     ln_category = "TOP Input"
     ln_params = False
+    ln_reads_scene = True
 
     camera: PointerProperty(name="Camera", type=bpy.types.Object, poll=lambda self, ob: ob.type == 'CAMERA')
     shading: EnumProperty(name="Shading", items=[('VIEWPORT', "As Viewport", "Use the shading of the 3D view used for drawing"),
@@ -219,13 +220,20 @@ class LN_RenderTOP(LNTopNode, bpy.types.Node):
                                                  ('MATERIAL', "Material Preview", ""),
                                                  ('SOLID', "Solid", "")], default='RENDERED')
     transparent: BoolProperty(name="Transparent", default=False, description="Leave the world background out")
+    method: EnumProperty(name="Method", items=[
+        ('VIEWPORT', "Viewport (real time)", "Draw like the 3D viewport; needs a 3D View open somewhere"),
+        ('FINAL', "Final Render (offline)", "Full render with the scene's render engine: slow, for Timeline-clock exports; "
+                                            "also used automatically when Blender runs without a window")],
+        default='VIEWPORT')
 
     def ln_init(self):
         self.add_out('TOP')
 
     def ln_draw(self, context, layout):
         layout.prop(self, "camera", text="", icon='CAMERA_DATA')
-        layout.prop(self, "shading", text="")
+        layout.prop(self, "method", text="")
+        if self.method == 'VIEWPORT':
+            layout.prop(self, "shading", text="")
         layout.prop(self, "transparent")
 
     def cook(self, ctx, inp):
@@ -233,9 +241,11 @@ class LN_RenderTOP(LNTopNode, bpy.types.Node):
         cam = self.camera or scene.camera
         if cam is None:
             raise ValueError("no camera: set one here or in the scene")
-        view = _find_view3d()
+        view = _find_view3d() if self.method == 'VIEWPORT' else None
         if view is None:
-            raise RuntimeError("needs a 3D Viewport open in some window")
+            if self.method == 'VIEWPORT' and not bpy.app.background:
+                raise RuntimeError("needs a 3D Viewport open in some window (or use Final Render)")
+            return self._final_render(ctx, scene, cam)
         area, space, region = view
         w, h = self.out_size(ctx)
         tgt = self.target(ctx, (w, h))
@@ -244,8 +254,12 @@ class LN_RenderTOP(LNTopNode, bpy.types.Node):
         proj = cam.calc_matrix_camera(depsgraph, x=w, y=h, scale_x=scene.render.pixel_aspect_x, scale_y=scene.render.pixel_aspect_y)
         shading = space.shading
         old = shading.type
+        # grid, axes, outlines and gizmos belong to the editor, not to the image
+        old_overlays, old_gizmo = space.overlay.show_overlays, space.show_gizmo
         if self.shading != 'VIEWPORT':
             shading.type = self.shading
+        space.overlay.show_overlays = False
+        space.show_gizmo = False
         try:
             tgt.off.draw_view3d(scene, bpy.context.view_layer if bpy.context.view_layer else scene.view_layers[0],
                                 space, region, view_matrix, proj, do_color_management=False,
@@ -253,7 +267,42 @@ class LN_RenderTOP(LNTopNode, bpy.types.Node):
         finally:
             if shading.type != old:
                 shading.type = old
+            space.overlay.show_overlays = old_overlays
+            space.show_gizmo = old_gizmo
         return tgt.texture
+
+
+    def _final_render(self, ctx, scene, cam):
+        import tempfile
+        w, h = self.out_size(ctx)
+        r = scene.render
+        saved = (scene.camera, r.resolution_x, r.resolution_y, r.resolution_percentage, r.film_transparent,
+                 r.image_settings.file_format, r.image_settings.color_depth)
+        st = ctx.state
+        path = st.get("render_path")
+        if path is None:
+            path = st["render_path"] = os.path.join(tempfile.gettempdir(), f"livenodes_render_{id(st)}.exr")
+        try:
+            scene.camera = cam
+            r.resolution_x, r.resolution_y, r.resolution_percentage = w, h, 100
+            r.film_transparent = self.transparent
+            r.image_settings.file_format = 'OPEN_EXR'
+            r.image_settings.color_depth = '16'
+            bpy.ops.render.render(scene=scene.name)
+            bpy.data.images["Render Result"].save_render(filepath=path, scene=scene)
+        finally:
+            (scene.camera, r.resolution_x, r.resolution_y, r.resolution_percentage, r.film_transparent,
+             r.image_settings.file_format, r.image_settings.color_depth) = saved
+        holder = st.get("render_img")
+        if holder is None or holder.image is None:
+            img = bpy.data.images.load(path, check_existing=False)
+            img.name = ".ln_render"
+            holder = st["render_img"] = _ImageHolder(img)
+        else:
+            holder.image.reload()
+        tex = gpu.texture.from_image(holder.image)
+        # copy into our own target so the result survives the next reload
+        return self.run(ctx, PASS_FRAG, {}, [tex], size=(w, h))
 
 
 def _find_view3d():

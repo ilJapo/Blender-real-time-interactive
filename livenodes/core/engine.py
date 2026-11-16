@@ -206,6 +206,24 @@ class Engine:
             plan.append((name, f"{tree.name}\x00{name}", tuple(ins), outs))
             deps[name] = dep
 
+        # Nodes that read the scene wait for the nodes that write it (unless
+        # the writer is downstream of the reader), so renders see this frame's state.
+        writers = [n for n in deps if getattr(nodes[n], "ln_writes_scene", False)]
+        readers = [n for n in deps if getattr(nodes[n], "ln_reads_scene", False)]
+        if writers and readers:
+            def ancestors(name, seen=None):
+                seen = set() if seen is None else seen
+                for d in deps[name]:
+                    if d not in seen:
+                        seen.add(d)
+                        ancestors(d, seen)
+                return seen
+            for w in writers:
+                up = ancestors(w)
+                for r in readers:
+                    if r not in up and r != w:
+                        deps[r].add(w)
+
         # Kahn topological order; members of a cycle keep reading last frame.
         order, done, pending = [], set(), list(plan)
         while pending:

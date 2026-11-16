@@ -860,6 +860,69 @@ def stream_out_ndi_loopback():
 
 
 @test
+def text_top_font_and_tracking():
+    t = new_tree()
+    plain = node(t, "LN_TextTOP", text="WIDE", size=0.3, font='MONO', align='LEFT', position=(0.05, 0.5))
+    spaced = node(t, "LN_TextTOP", text="WIDE", size=0.3, font='MONO', align='LEFT', position=(0.05, 0.5), tracking=0.5)
+    cook()
+    no_errors()
+
+    def right_edge(n):
+        cols = np.where(pixels(out(t, n))[..., 3].max(0) > 0.2)[0]
+        return cols.max()
+    assert right_edge(spaced) > right_edge(plain) + 5, (right_edge(plain), right_edge(spaced))
+
+
+@test
+def scene_resolution_mode():
+    t = new_tree()
+    p = node(t, "LN_PatternCHOP", samples=16)
+    data = node(t, "LN_ChopToTOP")
+    link(t, p, data)
+    g = node(t, "LN_GlslTOP", res_mode='SCENE')
+    txt = bpy.data.texts.new("res.glsl")
+    txt.write("void main(){ fragColor = texture(uIn0, vUV); }")
+    g.source = txt
+    link(t, data, g, 0, "In 0")
+    cook()
+    no_errors()
+    assert (out(t, g).width, out(t, g).height) == (64, 36)
+    g.res_mode = 'AUTO'
+    cook()
+    assert (out(t, g).width, out(t, g).height) == (16, 1)
+
+
+@test
+def scene_writers_cook_before_readers():
+    t = new_tree()
+    ob = bpy.data.objects.new("Order", None)
+    SCENE.collection.objects.link(ob)
+    reader = node(t, "LN_PropertyInCHOP", ob=ob, path="location", channel="loc")  # created first on purpose
+    c = node(t, "LN_ConstantCHOP", names="x y z", values=(5, 6, 7, 0, 0, 0, 0, 0))
+    e = node(t, "LN_ExportCHOP", ob=ob, path="location")
+    link(t, c, e)
+    cook()  # one frame: the reader must already see what the export wrote
+    assert out(t, reader).get("locx") == 5.0, out(t, reader).to_dict()
+
+
+@test
+def audio_file_info_and_timeline_sync():
+    import aud
+    path = os.path.join(tempfile.gettempdir(), "ln_test_tone2.wav")
+    aud.Sound.sine(220.0, 44100).limit(0, 1.0).write(path, rate=44100, channels=1)
+    t = new_tree()
+    a = node(t, "LN_AudioFileInCHOP", filepath=path)
+    SCENE.livenodes.time_mode = 'TIMELINE'
+    try:
+        ENGINE.tick(SCENE, now_time=1.25, dt=1 / 30)  # loops after 1 s
+        info = out(t, a, "Info")
+        length = info.get("length")  # the encoder pads the file by a few samples
+        assert abs(length - 1.0) < 0.01 and abs(info.get("position") - 1.25 % length) < 1e-5, info.to_dict()
+    finally:
+        SCENE.livenodes.time_mode = 'REALTIME'
+
+
+@test
 def timeline_mode_is_deterministic():
     t = new_tree()
     lfo = node(t, "LN_LfoCHOP", frequency=0.5)
@@ -875,9 +938,12 @@ def timeline_mode_is_deterministic():
 @test
 def examples_build_and_cook():
     new_tree()
-    for key in ('FEEDBACK', 'AUDIO', 'INSTANCES', 'CONTROL'):
+    for key in ('FEEDBACK', 'AUDIO', 'INSTANCES', 'CONTROL', 'PULSAR'):
         assert bpy.ops.livenodes.add_example(example=key) == {'FINISHED'}
     cook(5)
+    pulsar = bpy.data.node_groups["PULSAR"]
+    assert out(pulsar, pulsar.nodes["Overlay"]).width == 1280  # the showcase sets its own resolution
+    SCENE.livenodes.res_x, SCENE.livenodes.res_y = 64, 36
     errs = {k: v for k, v in ENGINE.errors.items() if "OSC" not in k}
     assert not errs, errs
     pts = bpy.data.objects["Live Points"]

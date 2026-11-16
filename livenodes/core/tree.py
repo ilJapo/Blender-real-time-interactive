@@ -89,6 +89,8 @@ class LNNode:
     ln_category = "Misc"
     ln_params = True      # adds a "Params" CHOP input that overrides properties by name
     ln_live = False       # needs the interactive capture operator (keyboard / mouse)
+    ln_writes_scene = False  # changes Blender data (exports): cooked before nodes that read the scene
+    ln_reads_scene = False   # reads Blender data (render, object transforms)
 
     @classmethod
     def poll(cls, ntree):
@@ -146,6 +148,7 @@ class LNTopNode(LNNode):
     res_mode: EnumProperty(
         name="Resolution",
         items=[('AUTO', "Auto", "Use the input resolution, or the scene default for generators"),
+               ('SCENE', "Scene", "Always use the default resolution of the Live Nodes settings"),
                ('CUSTOM', "Custom", "Use the resolution set on this node")],
         default='AUTO')
     res_x: IntProperty(name="Width", default=1280, min=1, max=16384)
@@ -161,7 +164,7 @@ class LNTopNode(LNNode):
     def out_size(self, ctx, src=None):
         if self.res_mode == 'CUSTOM':
             return (self.res_x, self.res_y)
-        if src is not None:
+        if src is not None and self.res_mode == 'AUTO':
             return (src.width, src.height)
         return ctx.default_res
 
