@@ -1,17 +1,17 @@
 # Live Nodes — real-time / interactive visuals in Blender
 
-Addon per Blender (4.2+, testato su **Blender 5.3**) che aggiunge un editor a nodi
-"live" ispirato al modello di TouchDesigner: una rete di operatori che viene
-*cucinata* (cooked) continuamente a frame rate fisso, indipendentemente dalla
-timeline, e che pilota Blender, la GPU e dispositivi esterni in tempo reale.
+An add-on for Blender (4.2+, tested on **Blender 5.3**) that adds a "live" node
+editor modelled on TouchDesigner: a network of operators that is *cooked*
+continuously at a fixed frame rate, independently of the timeline, and drives
+Blender, the GPU and external devices in real time.
 
-| Famiglia | Colore socket | Cosa trasporta |
+| Family | Socket colour | What it carries |
 |---|---|---|
-| **CHOP** | verde | canali numerici con nome (controlli, audio, MIDI, OSC, DMX) |
-| **TOP**  | viola | texture GPU (shader GLSL, compositing, feedback, video) |
-| **DAT**  | rosa  | testo, tabelle, script Python |
+| **CHOP** | green | named numeric channels (controls, audio, MIDI, OSC, DMX) |
+| **TOP**  | purple | GPU textures (GLSL shaders, compositing, feedback, video) |
+| **DAT**  | pink  | text, tables, Python scripts |
 
-## Installazione
+## Installation
 
 ```bash
 cd livenodes && zip -r ../livenodes.zip . && cd ..
@@ -19,173 +19,173 @@ cd livenodes && zip -r ../livenodes.zip . && cd ..
 
 Blender → *Edit › Preferences › Get Extensions › ⌄ › Install from Disk…* → `livenodes.zip`.
 
-Poi: apri un **Node Editor**, scegli il tipo di albero **Live Nodes**, premi
-**New Live Network** (o nella sidebar `N › Live › Modules & Examples` crea un esempio)
-e premi **Start** (`Ctrl+Shift+Space`).
+Then open a **Node Editor**, choose the **Live Nodes** tree type, press
+**New Live Network** (or create an example from the sidebar, `N › Live › Modules & Examples`)
+and press **Start** (`Ctrl+Shift+Space`).
 
-Moduli opzionali (installabili con un clic dal pannello *Modules & Examples*,
-che mostra solo quelli adatti al tuo sistema operativo):
-`python-rtmidi` (MIDI), `sounddevice` (microfono / line-in), `opencv-python-headless`
-(webcam, file video, registrazione MP4), `ndi-python` (NDI, include il runtime NDI),
-`SpoutGL` (Spout, Windows), `syphon-python` (Syphon, macOS). Tutto il resto — OSC, Art-Net/DMX, UDP,
-audio da file, shader, compositing — funziona senza dipendenze esterne.
+Optional modules (one-click install from the *Modules & Examples* panel, which
+only lists the ones that apply to your operating system):
+`python-rtmidi` (MIDI), `sounddevice` (microphone / line in), `opencv-python-headless`
+(webcam, movie files, MP4 recording), `ndi-python` (NDI, ships the NDI runtime),
+`SpoutGL` (Spout, Windows), `syphon-python` (Syphon, macOS). Everything else — OSC,
+Art-Net/DMX, UDP, audio files, shaders, compositing — works with no external dependencies.
 
 ## Demo: PULSAR
 
 ![PULSAR](demo/pulsar_poster.jpg)
 
-Un'installazione audio-reattiva completa: un sole nero la cui corona è lo spettro
-audio, scie in feedback, un anello di barre 3D (Geometry Nodes) renderizzato dal vivo
-e composto sopra, bloom, aberrazione cromatica sui kick, tone mapping, grana e un HUD
-tipografico. La colonna sonora (124 BPM, 8 battute in loop) è sintetizzata dal codice:
-nessun file esterno.
+A complete audio-reactive piece: a black sun whose corona is the audio spectrum,
+feedback trails, a ring of 3D bars (Geometry Nodes) rendered live and composited
+on top, bloom, chromatic aberration on the kicks, tone mapping, film grain and a
+typographic HUD. The soundtrack (124 BPM, an 8-bar loop) is synthesised in code:
+no external files.
 
-**Aprirla:** installa l'addon, apri `demo/pulsar.blend`, clicca la scheda
-**PULSAR** in alto, poi **Start** nella sidebar *Live* (`N`). Oppure da un file
-qualsiasi: *Live › Modules & Examples › PULSAR*.
+**Open it:** install the add-on, open `demo/pulsar.blend`, click the **PULSAR**
+workspace tab at the top, then **Start** in the *Live* sidebar (`N`). Or, from any
+file: *Live › Modules & Examples › PULSAR*.
 
-**Suonarla** (pannello *Perform*, anche nella sidebar della 3D View):
+**Play it** (the *Perform* panel, also in the 3D View sidebar):
 
-| Controllo | Effetto |
+| Control | Effect |
 |---|---|
-| Intensity | dimensione ed energia della corona |
-| Trails | persistenza delle scie (feedback) |
-| Hue Shift | ruota la palette |
-| 3D Ring | quantità del layer 3D |
-| Glitch · `Space` | mosaico, strappi orizzontali, split RGB |
-| Flash · `F` | lampo bianco |
+| Intensity | size and energy of the corona |
+| Trails | how long the feedback trails persist |
+| Hue Shift | rotates the palette |
+| 3D Ring | amount of the 3D layer |
+| Glitch · `Space` | mosaic, horizontal tearing, RGB split |
+| Flash · `F` | white flash |
 
-**Com'è fatta** — 57 nodi in 8 frame numerati, da leggere da sinistra a destra:
+**How it is built** — 57 nodes in 8 numbered frames, to be read left to right:
 
-1. **AUDIO** — loop → analisi (level / bass / mid / high / kick) e spettro a 64 bande; il kick diventa un inviluppo.
-2. **PERFORM** — i controlli sopra, tastiera inclusa.
-3. **BRAIN** — un nodo *Script* (`pulsar_brain.py`) che impacchetta tutto in canali con nome: i primi 16 sono le uniform degli shader, gli altri pilotano i parametri dei nodi per nome (`rotate`, `amount`, `block`, `core_scale`…).
-4. **ECLIPSE** — shader GLSL (`pulsar_eclipse.glsl`) che legge lo spettro come texture.
-5. **FEEDBACK** — zoom, vortice, deriva di colore: la corona lascia scie che si espandono.
-6. **3D** — lo spettro diventa 96 punti (`pulsar_ring.py` → CHOP to Mesh), istanziati come barre da Geometry Nodes; nucleo, rotazione, glow del materiale e camera sono guidati da Export CHOP; *Render TOP* lo disegna ogni frame. Camera ortografica: il nucleo 3D coincide sempre col disco 2D.
-7. **POST** — bloom, split RGB, mosaico, shader di finitura (`pulsar_finish.glsl`: ACES, vignetta, scanline, grana).
-8. **OUTPUT** — HUD (*Format DAT* + *Text TOP* monospace), *Out TOP*, *Stream Out* (spento: attivalo per mandarlo a OBS/Resolume via NDI/Spout/Syphon).
+1. **AUDIO** — loop → analysis (level / bass / mid / high / kick) and a 64-band spectrum; the kick becomes an envelope.
+2. **PERFORM** — the controls above, keyboard included.
+3. **BRAIN** — a *Script* node (`pulsar_brain.py`) that packs everything into named channels: the first 16 are the shader uniforms, the rest drive node parameters by name (`rotate`, `amount`, `block`, `core_scale`…).
+4. **ECLIPSE** — a GLSL shader (`pulsar_eclipse.glsl`) that reads the spectrum as a texture.
+5. **FEEDBACK** — zoom, swirl and colour drift: the corona leaves expanding trails.
+6. **3D** — the spectrum becomes 96 points (`pulsar_ring.py` → CHOP to Mesh), instanced as bars by Geometry Nodes; the core, spin, material glow and camera are driven by Export CHOPs; *Render TOP* draws it every frame. The camera is orthographic, so the 3D core always matches the 2D disc.
+7. **POST** — bloom, RGB split, mosaic and a finishing shader (`pulsar_finish.glsl`: ACES, vignette, scanlines, grain).
+8. **OUTPUT** — HUD (*Format DAT* + monospaced *Text TOP*), *Out TOP*, *Stream Out* (off: switch it on to send the image to OBS/Resolume over NDI/Spout/Syphon).
 
-Palette: indaco `#1B1440`, viola elettrico `#7B5CFF`, corallo `#FF5A36`, bianco caldo `#FFF4E6` su nero.
+Palette: indigo `#1B1440`, electric violet `#7B5CFF`, coral `#FF5A36`, warm white `#FFF4E6` on black.
 
-**Video offline** (orologio Timeline, deterministico, con audio; serve ffmpeg). Il video
-viene prodotto a segmenti, ciascuno in un processo nuovo con 1,5 s di pre-roll:
-Blender senza finestra non chiude mai un frame GPU e su sequenze lunghe esaurisce
-la memoria video.
+**Offline video** (Timeline clock, deterministic, with sound; needs ffmpeg). The video
+is made in segments, each in a fresh process with a 1.5 s pre-roll: Blender without
+a window never ends a GPU frame, and over long sequences it runs out of video memory.
 
 ```bash
 blender -b demo/pulsar.blend --python demo/render_preview.py -- pulsar.mp4 1280 720 30
-python3 demo/build_demo.py      # rigenera pulsar.blend e pulsar_loop.wav
+python3 demo/build_demo.py      # regenerates pulsar.blend and pulsar_loop.wav
 ```
 
-## Concetti
+## Concepts
 
-- **Engine**: un timer cucina tutte le reti a *Target FPS* (default 60). Modalità
-  *Timeline* = un cook per frame della timeline, deterministico, per renderizzare animazioni.
-- **Params**: ogni nodo ha un input *Params*: un canale con lo stesso nome di una
-  proprietà la sovrascrive (`speed`, `radius`, o componenti come `color.r`, `offset.x`).
-  È l'equivalente dei riferimenti/export di parametro di TouchDesigner.
-- **Feedback**: *Feedback CHOP/TOP* leggono l'uscita di un altro nodo al frame
-  precedente — scie, echi, accumuli, sistemi a reazione.
-- **Mute** (`M`) su un nodo = bypass. Gli errori compaiono in rosso sul nodo,
-  il pannello *Performance* mostra i ms di cook per nodo.
-- **Anteprime** delle texture sopra ogni nodo TOP, **backdrop** dell'output,
-  **Output Window** (anche fullscreen su un secondo schermo / proiettore).
-- **Perform panel**: i nodi *Control CHOP* (slider, toggle, pulsanti, XY) diventano
-  un'interfaccia di controllo nella sidebar del Node Editor e della 3D View.
+- **Engine**: a timer cooks every network at the *Target FPS* (default 60). The
+  *Timeline* clock cooks once per timeline frame, deterministically, for rendering animations.
+- **Params**: every node has a *Params* input; a channel with the same name as a
+  property overrides it (`speed`, `radius`, or components such as `color.r`, `offset.x`).
+  This is the equivalent of TouchDesigner's parameter references / exports.
+- **Feedback**: *Feedback CHOP/TOP* read another node's output from the previous
+  frame — trails, echoes, accumulation, reaction systems.
+- **Mute** (`M`) on a node = bypass. Errors appear in red on the node, and the
+  *Performance* panel shows the cook time of each node in ms.
+- **Texture previews** above every TOP node, an output **backdrop**, and an
+  **Output Window** (fullscreen too, for a second screen / projector).
+- **Perform panel**: *Control CHOP* nodes (sliders, toggles, buttons, XY pads) become
+  a control surface in the Node Editor and 3D View sidebars.
 
-## Nodi (89)
+## Nodes (89)
 
 **CHOP Generate** — Constant, LFO (sine/tri/ramp/square/pulse/random), Noise, Time,
 Timer, Beat (BPM, tap tempo), Pattern, Trigger (ADSR), Control.
 
-**CHOP Filter** — Math (range, combinazione input/canali, funzioni), Lag, Spring,
-Speed, Slope, Limit, Logic (toggle, fronti), Count, Hold, Delay, Select (wildcard,
-rinomina), Merge, Switch (con blend), Null, Expression (Python per canale),
+**CHOP Filter** — Math (ranges, combining inputs/channels, functions), Lag, Spring,
+Speed, Slope, Limit, Logic (toggle, edges), Count, Hold, Delay, Select (wildcards,
+renaming), Merge, Switch (with blending), Null, Expression (Python per channel),
 Resample, Analyze, Trail, Shuffle, Feedback.
 
-**CHOP Input / Audio** — Audio File In (riproduce e analizza), Audio Device In,
-Audio Spectrum (bande log, dB), Audio Analysis (level, bass/mid/high, *kick*),
+**CHOP Input / Audio** — Audio File In (plays and analyses), Audio Device In,
+Audio Spectrum (log bands, dB), Audio Analysis (level, bass/mid/high, *kick*),
 MIDI In, OSC In (+ log), DMX In (Art-Net), Keyboard In, Mouse In, Object,
-Property In (qualsiasi proprietà di Blender).
+Property In (any Blender property).
 
-**CHOP Output** — Export (qualsiasi proprietà: oggetti, luci, camere, materiali,
-modificatori, **input di Geometry Nodes**), OSC Out, MIDI Out, DMX Out (Art-Net),
-CHOP to Mesh (punti + attributi per Geometry Nodes → instancing).
+**CHOP Output** — Export (any property: objects, lights, cameras, materials,
+modifiers, **Geometry Nodes inputs**), OSC Out, MIDI Out, DMX Out (Art-Net),
+CHOP to Mesh (points + attributes for Geometry Nodes → instancing).
 
 **TOP** — Constant, Noise (smooth/fractal/cellular/random), Ramp, Shape, Text,
-**GLSL** (shader tuoi, compatibile con il codice *Shadertoy*), CHOP to TOP,
-Feedback, Image, Movie File In, Video Device In, **Render** (scena 3D EEVEE da
-una camera, ogni frame), Level, Blur, Transform, **Corner Pin** (projection
-mapping), Composite (12 modalità), Cross, Switch, Displace, Edge, Key (luma/chroma),
+**GLSL** (your own shaders, compatible with *Shadertoy* code), CHOP to TOP,
+Feedback, Image, Movie File In, Video Device In, **Render** (the 3D scene through a
+camera, every frame), Level, Blur, Transform, **Corner Pin** (projection
+mapping), Composite (12 modes), Cross, Switch, Displace, Edge, Key (luma/chroma),
 Mirror/Kaleidoscope, Pixelate, RGB Split, Lookup, Bloom, Normal Map, Resolution,
-Null, TOP to CHOP, TOP to Image (texture live nei materiali), Out, Movie File Out
+Null, TOP to CHOP, TOP to Image (live textures in materials), Out, Movie File Out
 (PNG/EXR/MP4), **Stream Out** (NDI / Spout / Syphon).
 
-**DAT** — Text, Table, File In (ricarica automatica), UDP In, DAT to CHOP,
-CHOP to DAT, Format, **Script** (Python `cook(ctx, inputs)` → canali/testo/texture),
-**Execute** (Python su eventi: fronti di salita/discesa, cambi di valore).
+**DAT** — Text, Table, File In (automatic reload), UDP In, DAT to CHOP,
+CHOP to DAT, Format, **Script** (Python `cook(ctx, inputs)` → channels/text/texture),
+**Execute** (Python on events: rising/falling edges, value changes).
 
-## Esempi inclusi
+## Included examples
 
-1. **Feedback Visuals** — loop di feedback generativo con bloom → Out TOP.
-2. **Audio Reactive Object** — clock a BPM + analisi audio che pilotano scala e
-   rotazione di un oggetto.
-3. **Channels to Geometry** — scia di un LFO → punti → Geometry Nodes instancing.
-4. **Controls, Text & OSC** — slider nel Perform panel, testo live sovrapposto, OSC in.
+1. **PULSAR (showcase)** — the demo described above.
+2. **Feedback Visuals** — a generative feedback loop with bloom → Out TOP.
+3. **Audio Reactive Object** — a BPM clock and audio analysis driving an object's
+   scale and rotation.
+4. **Channels to Geometry** — an LFO trail → points → Geometry Nodes instancing.
+5. **Controls, Text & OSC** — Perform-panel sliders, live text overlay, OSC input.
 
 ## Stream Out: NDI, Spout, Syphon
 
-Il nodo **Stream Out TOP** condivide un'immagine live con altre applicazioni
+The **Stream Out TOP** node shares a live image with other applications
 (OBS, vMix, Resolume, MadMapper, TouchDesigner, Millumin…):
 
-| Protocollo | Sistema | Come funziona |
+| Protocol | System | How it works |
 |---|---|---|
-| NDI | tutti | video compresso sulla rete locale; con *Only When Connected* nessun costo finché nessuno riceve |
-| Spout | Windows | texture condivisa DirectX; se Blender usa Vulkan, Spout crea un proprio contesto OpenGL |
-| Syphon | macOS | texture condivisa Metal |
+| NDI | all | compressed video over the local network; with *Only When Connected* it costs nothing until someone receives |
+| Spout | Windows | shared DirectX texture; if Blender runs on Vulkan, Spout creates its own OpenGL context |
+| Syphon | macOS | shared Metal texture |
 
-Su GPU il nodo converte in sRGB 8 bit, toglie la premoltiplicazione dell'alpha e
-capovolge l'immagine, poi legge i pixel. La lettura GPU → CPU resta il costo
-principale (Blender non espone l'handle nativo delle sue texture). Riduci *Max FPS*
-o la risoluzione del nodo se serve. L'uscita *Info* riporta receivers, frame inviati
-e risoluzione.
+On the GPU the node converts to 8-bit sRGB, un-premultiplies the alpha and flips
+the image, then reads the pixels back. The GPU → CPU readback remains the main
+cost (Blender does not expose the native handle of its textures). Lower *Max FPS*
+or the node's resolution if needed. The *Info* output reports receivers, frames
+sent and resolution.
 
-## Test
+## Tests
 
 ```bash
-pip install bpy==5.3.0            # Blender come modulo Python
-python3 tests/run_tests.py        # 48 test, headless (GPU software va bene)
-pip install ndi-python            # opzionale: attiva il test NDI reale in loopback
+pip install bpy==5.3.0            # Blender as a Python module
+python3 tests/run_tests.py        # 48 tests, headless (a software GPU is fine)
+pip install ndi-python            # optional: enables the real NDI loopback test
 ```
 
-I test cucinano reti reali con un clock fisso e verificano valori dei canali,
-pixel delle texture GPU, effetti su Blender (proprietà, mesh, input GN, file
-registrati) e il round-trip di rete OSC e Art-Net su localhost.
+The tests cook real networks with a fixed clock and check channel values, GPU
+texture pixels, effects on Blender (properties, meshes, Geometry Nodes inputs,
+recorded files) and OSC and Art-Net network round trips on localhost.
 
-## Confronto onesto con TouchDesigner
+## An honest comparison with TouchDesigner
 
-Coperto: l'architettura a operatori CHOP/TOP/DAT, cook in tempo reale, feedback,
-GLSL, compositing, audio reattivo, MIDI/OSC/DMX, video/webcam, scripting Python
-a ogni frame ed eventi, output fullscreen, projection mapping a 4 angoli, controllo
-di tutto Blender (che fa le veci di SOP/POP tramite Geometry Nodes e di Render TOP
-tramite EEVEE).
+Covered: the CHOP/TOP/DAT operator architecture, real-time cooking, feedback,
+GLSL, compositing, audio reactivity, MIDI/OSC/DMX, video/webcam, per-frame and
+event-driven Python scripting, fullscreen output, four-corner projection mapping,
+and control over all of Blender (which stands in for SOPs/POPs through Geometry
+Nodes, and for the Render TOP through EEVEE).
 
-Non (ancora) coperto, per limiti reali più che di tempo:
+Not covered (yet), because of real limits more than lack of time:
 
-- **Prestazioni**: ogni nodo è Python; il cook dei CHOP costa ~10 µs/nodo
-  (61 nodi ≈ 0.8 ms), le TOP sono shader GPU e scalano bene. TOP → materiale passa
-  dalla CPU (readback) — usa *Every Nth Frame* o risoluzioni moderate.
-- **Render TOP** in tempo reale usa il disegno della viewport (overlay esclusi) e
-  serve una 3D View aperta; in modalità *Final Render* usa il motore di render
-  (lento, per esportazioni offline con l'orologio Timeline).
-- **COMP / pannelli UI personalizzati, Kinect/Leap/sensori, WebSocket/Web Server DAT,
-  timeline a cue, cooking multi-thread**: non presenti. Si possono scrivere come
-  *Script* node o come nuovi nodi (ogni nodo è una classe con un metodo `cook`).
-- L'interfaccia (anteprime, finestra di output, pannelli) non è coperta dai test
-  automatici headless: va provata in Blender con finestra.
+- **Performance**: every node is Python; cooking a CHOP costs ~10 µs per node
+  (61 nodes ≈ 0.8 ms), while TOPs are GPU shaders and scale well. TOP → material goes
+  through the CPU (readback) — use *Every Nth Frame* or moderate resolutions.
+- **Render TOP** in real time uses viewport drawing (overlays excluded) and needs
+  an open 3D View; in *Final Render* mode it uses the render engine (slow, for
+  offline exports with the Timeline clock).
+- **COMPs / custom UI panels, Kinect/Leap/sensors, WebSocket/Web Server DAT,
+  cue-based timelines, multi-threaded cooking**: not available. They can be written
+  as *Script* nodes or as new nodes (every node is a class with a `cook` method).
+- The interface (previews, output window, panels) is not covered by the headless
+  automated tests: it needs to be tried in Blender with a window.
 
-## Scrivere un nodo
+## Writing a node
 
 ```python
 class LN_MyCHOP(LNNode, bpy.types.Node):
@@ -198,9 +198,9 @@ class LN_MyCHOP(LNNode, bpy.types.Node):
         self.add_in('CHOP', "In")
         self.add_out('CHOP')
 
-    def cook(self, ctx, inp):          # ctx.time, ctx.dt, ctx.state, ctx.p (parametri)
+    def cook(self, ctx, inp):          # ctx.time, ctx.dt, ctx.state, ctx.p (parameters)
         src = inp.chop()
         return src.replace(src.data * ctx.p.gain)
 ```
 
-Aggiungilo alla tupla `classes` del modulo e comparirà nel menu `Shift+A`.
+Add it to the module's `classes` tuple and it will appear in the `Shift+A` menu.
