@@ -732,6 +732,10 @@ TOP it finds. Move the window to the projector or second screen before making it
 fullscreen. The image is fitted to the window with black bars where the aspect
 ratios differ. Close the window as any Blender window.
 
+While you drag a window's edge on macOS the image looks stretched: Blender does not
+redraw during a live resize, so macOS scales the last frame. The proportions come
+back as soon as you release the mouse.
+
 Several Out TOPs can drive several windows at once.
 
 ### Projection mapping
@@ -944,6 +948,7 @@ reference with `python3 tools/gen_node_reference.py`.
 | Stream Out: receivers do not see NDI | Same network and subnet, firewall rules for NDI, mDNS allowed. |
 | Spout/Syphon unavailable | They exist only on Windows / macOS respectively; use NDI elsewhere. |
 | Headless render crashes after a few hundred frames | Render in segments (chapter 14). |
+| The output looks stretched while resizing its window (macOS) | Normal during a live resize: Blender redraws when you release the mouse, with the right proportions. If it stays stretched, report it. |
 
 ---
 
