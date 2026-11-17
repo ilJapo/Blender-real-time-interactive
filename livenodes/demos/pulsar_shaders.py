@@ -1,6 +1,6 @@
 """GLSL for the Pulsar demo. Uniform pack (from the Brain script):
 uP0 = bass, mid, high, kick      uP1 = level, hue, intensity, bar ramp
-uP2 = beat ramp, glitch, flash, time    uP3 = spare
+uP2 = beat ramp, glitch, flash, time    uP3 = feedback step, trails, spare, spare
 """
 
 ECLIPSE = r"""// PULSAR / eclipse - a black sun whose corona is the audio spectrum.
@@ -70,6 +70,36 @@ void main(){
 }
 """
 
+TRAILS = r"""// PULSAR / trails - the feedback loop in one pass, independent of the frame rate.
+// uIn0 = this node's own previous frame (Feedback TOP), uIn1 = the eclipse.
+// Everything is expressed per 1/30 s and scaled by K, the number of 30 fps frames
+// this cook stands for (1.0 at 30 fps, 0.5 at 60 fps), so trails look the same
+// whatever the machine manages.
+#define MID uP0.y
+#define K uP3.x
+#define TRAILS uP3.y
+
+void main(){
+  vec2 asp = vec2(uRes.x / uRes.y, 1.0);
+  vec2 q = (vUV - 0.5) * asp;
+  float ang = (0.0015 + 0.005 * MID) * K;                     // swirl
+  float cs = cos(ang); float sn = sin(ang);
+  q = vec2(cs * q.x + sn * q.y, -sn * q.x + cs * q.y) / pow(1.012, K);   // zoom outwards
+  vec2 uv = q / asp + 0.5;
+
+  vec2 px = 1.2 * sqrt(K) / uRes;                             // blur grows like a random walk
+  vec3 prev = texture(uIn0, uv).rgb * 0.4
+            + (texture(uIn0, uv + vec2(px.x, 0.0)).rgb + texture(uIn0, uv - vec2(px.x, 0.0)).rgb
+             + texture(uIn0, uv + vec2(0.0, px.y)).rgb + texture(uIn0, uv - vec2(0.0, px.y)).rgb) * 0.15;
+  prev *= ln_inside(uv) * pow(TRAILS * 0.985, K);           // fade
+  vec3 hsv = ln_rgb2hsv(max(prev, vec3(0.0)));                // slow colour drift
+  prev = ln_hsv2rgb(vec3(fract(hsv.x + 0.0025 * K), hsv.yz));
+
+  vec4 e = texture(uIn1, vUV);                                // premultiplied: disc alpha 1, corona alpha 0
+  fragColor = vec4(prev * (1.0 - e.a) + e.rgb * K, 1.0);      // new light, weighted by elapsed time
+}
+"""
+
 FINISH = r"""// PULSAR / finish - tone mapping, flash, vignette, scanlines and film grain
 #define KICK uP0.w
 #define GLITCH uP2.y
@@ -104,6 +134,7 @@ the rest drive node parameters by name (rotate, amount, block, core_scale...).""
 import math
 
 BPM = 124.0
+REF_FPS = 30.0   # the look is tuned per 1/30 s; feedback is scaled to the real frame time
 
 
 def cook(ctx, inputs):
@@ -113,17 +144,17 @@ def cook(ctx, inputs):
     kick = g("kick_env", 0.0)
     glitch = g("glitch", 0.0)
     intensity = 0.35 + 1.3 * g("intensity", 0.7)
+    step = min(max(ctx.dt * REF_FPS, 0.05), 4.0)
     out = {
         # uP0
         "bass": g("bass", 0.0), "mid": g("mid", 0.0), "high": g("high", 0.0), "kick": kick,
         # uP1
-        "level": g("level", 0.0), "hue": g("hue", 0.0), "intensity": intensity, "bar_ramp": (beats / 4.0) % 1.0,
+        "level": g("level", 0.0), "palette_hue": g("hue", 0.0), "intensity": intensity, "bar_ramp": (beats / 4.0) % 1.0,
         # uP2
         "beat_ramp": beats % 1.0, "glitch": glitch, "flash": g("flash", 0.0), "time": ctx.time,
-        # uP3 (spare)
-        "p12": 0.0, "p13": 0.0, "p14": 0.0, "p15": 0.0,
+        # uP3: feedback step (in 30 fps frames) and trail persistence
+        "fb_step": step, "fb_trails": g("trails", 0.82), "p14": 0.0, "p15": 0.0,
         # node parameters, matched by name
-        "rotate": 0.0015 + 0.005 * g("mid", 0.0),               # feedback swirl (Transform TOP)
         "amount": 0.0015 + 0.004 * kick + 0.03 * glitch,       # chromatic split (RGB Split TOP)
         "block": 1.0 + 14.0 * glitch * glitch,                  # mosaic (Pixelate TOP)
         "core_scale": 1.0 + 0.06 * kick + 0.05 * g("bass", 0.0),

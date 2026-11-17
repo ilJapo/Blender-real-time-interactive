@@ -189,45 +189,79 @@ def black():
     return tex
 
 
+DISPLAY_FRAG = """
+vec3 ln_to_srgb(vec3 c){ return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
+vec3 ln_to_linear(vec3 c){ return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }
+void main(){
+  vec4 c = texture(uIn0, vUV);
+  float a = (uAlpha == 1) ? clamp(c.a, 0.0, 1.0) : 1.0;
+  vec3 rgb = max(c.rgb, vec3(0.0));
+  if (uAlpha == 1 && a > 1.0e-5) rgb /= a;                 /* textures are premultiplied */
+  vec3 shown = clamp((uSRGB == 1) ? ln_to_srgb(rgb) : rgb, 0.0, 1.0);   /* display-referred */
+  /* Blender sets srgbTarget when the framebuffer encodes to sRGB itself (or is a linear
+     EDR buffer, e.g. Metal on macOS): it then wants linear values, like its own UI shaders. */
+  if (srgbTarget) shown = ln_to_linear(shown);
+  fragColor = vec4(shown * a, a);                           /* blended with ALPHA_PREMULT */
+}
+"""
+
+
 def display_shader():
-    """Screen-space textured quad with optional linear -> sRGB conversion."""
+    """Screen-space textured rectangle: linear texture -> what the window should show."""
     hit = _shaders.get("display")
     if hit is None:
         info = gpu.types.GPUShaderCreateInfo()
         iface = gpu.types.GPUStageInterfaceInfo("ln_disp_iface")
         iface.smooth('VEC2', 'vUV')
         info.vertex_in(0, 'VEC2', 'pos')
-        info.vertex_in(1, 'VEC2', 'uv')
         info.vertex_out(iface)
         info.fragment_out(0, 'VEC4', 'fragColor')
         info.push_constant('MAT4', 'uMVP')
+        info.push_constant('VEC4', 'uRect')
         info.push_constant('INT', 'uSRGB')
-        info.push_constant('FLOAT', 'uAlpha')
+        info.push_constant('INT', 'uAlpha')
+        info.push_constant('BOOL', 'srgbTarget')  # filled in by Blender on bind
         info.sampler(0, 'FLOAT_2D', 'uIn0')
-        info.vertex_source("void main(){ vUV = uv; gl_Position = uMVP * vec4(pos, 0.0, 1.0); }")
-        info.fragment_source(
-            "void main(){ vec4 c = texture(uIn0, vUV); vec3 rgb = max(c.rgb, vec3(0.0));"
-            " if (uSRGB == 1) rgb = mix(rgb * 12.92, 1.055 * pow(rgb, vec3(1.0/2.4)) - 0.055, step(vec3(0.0031308), rgb));"
-            " fragColor = vec4(rgb, mix(1.0, clamp(c.a, 0.0, 1.0), uAlpha)); }")
-        hit = _shaders["display"] = gpu.shader.create_from_info(info)
+        info.vertex_source("void main(){ vUV = pos; gl_Position = uMVP * vec4(uRect.xy + pos * uRect.zw, 0.0, 1.0); }")
+        info.fragment_source(DISPLAY_FRAG)
+        sh = gpu.shader.create_from_info(info)
+        quad = batch_for_shader(sh, 'TRI_STRIP', {"pos": [(0, 0), (1, 0), (0, 1), (1, 1)]})
+        hit = _shaders["display"] = (sh, quad)
     return hit
 
 
 def draw_texture(texture, x, y, w, h, srgb=True, use_alpha=False):
-    """Draw `texture` into the current framebuffer at pixel rect (x, y, w, h)."""
-    sh = display_shader()
-    batch = batch_for_shader(sh, 'TRI_STRIP', {
-        "pos": [(x, y), (x + w, y), (x, y + h), (x + w, y + h)],
-        "uv": [(0, 0), (1, 0), (0, 1), (1, 1)],
-    })
-    gpu.state.blend_set('ALPHA' if use_alpha else 'NONE')
+    """Draw `texture` into the current framebuffer at pixel rect (x, y, w, h).
+    Leaves Blender's GPU state as it found it."""
+    sh, quad = display_shader()
+    prev_blend = gpu.state.blend_get()
+    gpu.state.blend_set('ALPHA_PREMULT' if use_alpha else 'NONE')
     sh.bind()
     sh.uniform_float('uMVP', gpu.matrix.get_projection_matrix() @ gpu.matrix.get_model_view_matrix())
+    sh.uniform_float('uRect', (float(x), float(y), float(w), float(h)))
     sh.uniform_int('uSRGB', 1 if srgb else 0)
-    sh.uniform_float('uAlpha', 1.0 if use_alpha else 0.0)
+    sh.uniform_int('uAlpha', 1 if use_alpha else 0)
     sh.uniform_sampler('uIn0', texture)
-    batch.draw(sh)
+    quad.draw(sh)
+    gpu.state.blend_set(prev_blend)
+
+
+def draw_rect(x, y, w, h, color=(0.0, 0.0, 0.0, 1.0)):
+    """Solid rectangle in pixel coordinates (used instead of clearing a shared framebuffer)."""
+    hit = _shaders.get("rect")
+    if hit is None:
+        sh = gpu.shader.from_builtin('UNIFORM_COLOR')
+        hit = _shaders["rect"] = (sh, batch_for_shader(sh, 'TRI_STRIP', {"pos": [(0, 0), (1, 0), (0, 1), (1, 1)]}))
+    sh, quad = hit
+    prev_blend = gpu.state.blend_get()
     gpu.state.blend_set('NONE')
+    with gpu.matrix.push_pop():
+        gpu.matrix.translate((x, y))
+        gpu.matrix.scale((w, h))
+        sh.bind()
+        sh.uniform_float("color", color)
+        quad.draw(sh)
+    gpu.state.blend_set(prev_blend)
 
 
 def free_all():

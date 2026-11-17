@@ -4,7 +4,7 @@
   02 PERFORM   sliders and buttons in the Perform panel, keyboard shortcuts
   03 BRAIN     a Script node packing everything into named channels
   04 ECLIPSE   GLSL black sun with a spectrum corona
-  05 FEEDBACK  zooming, swirling, colour-drifting trails
+  05 FEEDBACK  zooming, swirling, colour-drifting trails (frame-rate independent)
   06 3D        spectrum ring instanced by Geometry Nodes, rendered live
   07 POST      bloom, chromatic split, mosaic, tone mapping, grain
   08 OUTPUT    HUD typography, Out TOP, Stream Out (NDI / Spout / Syphon)
@@ -255,10 +255,12 @@ def build(context):
     s.tex_format = 'RGBA16F'
     s.show_previews = True
     s.capture_input = True
+    s.redraw_viewports = False   # the 3D view only feeds the Render TOP: no need to repaint it every frame
 
     brain_txt = _text("pulsar_brain.py", pulsar_shaders.BRAIN)
     ring_txt = _text("pulsar_ring.py", pulsar_shaders.RING)
     eclipse_txt = _text("pulsar_eclipse.glsl", pulsar_shaders.ECLIPSE)
+    trails_txt = _text("pulsar_trails.glsl", pulsar_shaders.TRAILS)
     finish_txt = _text("pulsar_finish.glsl", pulsar_shaders.FINISH)
 
     # 01 AUDIO --------------------------------------------------------------
@@ -277,7 +279,7 @@ def build(context):
     F = "02 · PERFORM"
     controls = []
     for i, (label, kind, chan, val) in enumerate([
-            ("Intensity", 'SLIDER', "intensity", 0.7), ("Trails", 'SLIDER', "opacity", 0.82),
+            ("Intensity", 'SLIDER', "intensity", 0.7), ("Trails", 'SLIDER', "trails", 0.82),
             ("Hue Shift", 'SLIDER', "hue", 0.0), ("3D Ring", 'SLIDER', "opacity", 1.0),
             ("Glitch  [Space]", 'BUTTON', "glitch", 0.0), ("Flash  [F]", 'BUTTON', "flash", 0.0)]):
         nd = b.node("LN_ControlCHOP", F, -2600, 200 - i * 170, label, kind=kind, channel=chan, value=val, order=i)
@@ -304,7 +306,7 @@ def build(context):
     pos = b.node("LN_SelectCHOP", F, -1500, 650, "Position", pattern="position")
     b.link(audio, pos, out="Info")
     gather = b.node("LN_MergeCHOP", F, -1250, 300, "Gather")
-    for src in (ana, kick_env, pos, c_int, c_hue, glitch_env, flash_env):
+    for src in (ana, kick_env, pos, c_int, c_trails, c_hue, glitch_env, flash_env):
         b.link(src, gather)
     brain = b.node("LN_ScriptNode", F, -1000, 300, "Brain", script=brain_txt)
     b.link(gather, brain)
@@ -322,17 +324,13 @@ def build(context):
     # 05 FEEDBACK -----------------------------------------------------------
     F = "05 · FEEDBACK"
     fb = b.node("LN_FeedbackTOP", F, -700, 1250, "Feedback")
-    swirl = b.node("LN_TransformTOP", F, -450, 1250, "Swirl", uniform_scale=1.012, extend='ZERO')
-    fade = b.node("LN_LevelTOP", F, -200, 1250, "Fade", hue=0.0025, brightness=0.985)
-    soften = b.node("LN_BlurTOP", F, 50, 1250, "Soften", radius=1.2)
-    mix = b.node("LN_CompositeTOP", F, 300, 1000, "Mix", operation='OVER')
-    fb.target_node = mix.name
-    b.link(fb, swirl)
-    b.link(uniforms, swirl, 0, "Params")
-    b.link(swirl, fade)
-    b.link(c_trails, fade, 0, "Params")
-    b.link(fade, soften)
-    b.link(soften, mix, 0, "Base")
+    trails = b.node("LN_GlslTOP", F, -350, 1250, "Trail Loop", source=trails_txt, res_mode='SCENE')
+    fb.target_node = trails.name
+    b.link(fb, trails, 0, "In 0")
+    b.link(eclipse, trails, 0, "In 1")
+    b.link(uniforms, trails, 0, "Uniforms")
+    mix = b.node("LN_CompositeTOP", F, 0, 1000, "Mix", operation='OVER')
+    b.link(trails, mix, 0, "Base")
     b.link(eclipse, mix, 0, "Layers")
 
     # 06 3D -----------------------------------------------------------------

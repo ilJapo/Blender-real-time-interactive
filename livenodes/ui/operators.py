@@ -134,15 +134,17 @@ class LN_OT_output_window(bpy.types.Operator):
             self.report({'ERROR'}, "Could not open a window")
             return {'CANCELLED'}
         win = new[0]
+        ENGINE.output_windows[win.as_pointer()] = (tree_name, node_name)
         out_area = win.screen.areas[0]
         out_area.type = 'IMAGE_EDITOR'
-        space = out_area.spaces.active
-        space.show_region_header = False
-        space.show_region_toolbar = False
-        space.show_region_ui = False
-        space.show_region_tool_header = False
-        space.image = None
-        ENGINE.output_windows[win.as_pointer()] = (tree_name, node_name)
+        # the new space may not be the active one yet: look it up by type
+        space = next((sp for sp in out_area.spaces if sp.type == 'IMAGE_EDITOR'), None)
+        if space is not None:
+            for attr in ("show_region_header", "show_region_toolbar", "show_region_ui",
+                         "show_region_tool_header", "show_region_asset_shelf"):
+                if hasattr(space, attr):
+                    setattr(space, attr, False)
+            space.image = None
         if self.fullscreen:
             with context.temp_override(window=win, area=out_area):
                 bpy.ops.wm.window_fullscreen_toggle()

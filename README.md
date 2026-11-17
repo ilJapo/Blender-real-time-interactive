@@ -11,6 +11,10 @@ Blender, the GPU and external devices in real time.
 | **TOP**  | purple | GPU textures (GLSL shaders, compositing, feedback, video) |
 | **DAT**  | pink  | text, tables, Python scripts |
 
+**Documentation:** the [user manual](docs/MANUAL.md) (concepts, workflows, shaders,
+scripting, output, performance, troubleshooting) and the
+[node reference](docs/NODES.md) (every node and parameter, generated from the code).
+
 ## Installation
 
 Download [`dist/livenodes.zip`](dist/livenodes.zip) (on GitHub: open the file, then **Download raw file**).
@@ -62,9 +66,9 @@ file: *Live › Modules & Examples › PULSAR*.
 
 1. **AUDIO** — loop → analysis (level / bass / mid / high / kick) and a 64-band spectrum; the kick becomes an envelope.
 2. **PERFORM** — the controls above, keyboard included.
-3. **BRAIN** — a *Script* node (`pulsar_brain.py`) that packs everything into named channels: the first 16 are the shader uniforms, the rest drive node parameters by name (`rotate`, `amount`, `block`, `core_scale`…).
+3. **BRAIN** — a *Script* node (`pulsar_brain.py`) that packs everything into named channels: the first 16 are the shader uniforms, the rest drive node parameters by name (`amount`, `block`, `core_scale`, `spin`…).
 4. **ECLIPSE** — a GLSL shader (`pulsar_eclipse.glsl`) that reads the spectrum as a texture.
-5. **FEEDBACK** — zoom, swirl and colour drift: the corona leaves expanding trails.
+5. **FEEDBACK** — Feedback TOP + the *Trail Loop* shader (`pulsar_trails.glsl`): zoom, swirl, fade, blur and colour drift scaled by the frame time, so the trails look the same at 30, 60 or a fluctuating frame rate.
 6. **3D** — the spectrum becomes 96 points (`pulsar_ring.py` → CHOP to Mesh), instanced as bars by Geometry Nodes; the core, spin, material glow and camera are driven by Export CHOPs; *Render TOP* draws it every frame. The camera is orthographic, so the 3D core always matches the 2D disc.
 7. **POST** — bloom, RGB split, mosaic and a finishing shader (`pulsar_finish.glsl`: ACES, vignette, scanlines, grain).
 8. **OUTPUT** — HUD (*Format DAT* + monospaced *Text TOP*), *Out TOP*, *Stream Out* (off: switch it on to send the image to OBS/Resolume over NDI/Spout/Syphon).
@@ -158,7 +162,7 @@ sent and resolution.
 
 ```bash
 pip install bpy==5.3.0            # Blender as a Python module
-python3 tests/run_tests.py        # 48 tests, headless (a software GPU is fine)
+python3 tests/run_tests.py        # 51 tests, headless (a software GPU is fine)
 pip install ndi-python            # optional: enables the real NDI loopback test
 ```
 

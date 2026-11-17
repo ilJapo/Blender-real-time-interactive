@@ -46,7 +46,7 @@ if win is not None and ws is not None:
             space.show_region_ui = True       # the Live sidebar: Start, Perform panel
         elif area.type == 'VIEW_3D':
             space.region_3d.view_perspective = 'CAMERA'
-            space.shading.type = 'RENDERED'
+            space.shading.type = 'SOLID'      # cheap on screen; the Render TOP renders with EEVEE
             space.overlay.show_overlays = False
 
 

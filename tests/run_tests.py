@@ -939,6 +939,81 @@ def audio_file_info_and_timeline_sync():
 
 
 @test
+def display_respects_srgb_framebuffers():
+    """What reaches the screen must not depend on whether Blender draws into an sRGB
+    framebuffer (Metal/EDR and others) or a plain one: no double gamma."""
+    from mathutils import Matrix
+    tex = gpu_util.texture_from_array(np.full((4, 4, 4), [0.5, 0.5, 0.5, 1.0], np.float32))
+    stored = {}
+    for fmt in ('RGBA8', 'SRGB8_A8'):
+        target = gpu.types.GPUTexture((8, 8), format=fmt)
+        fb = gpu.types.GPUFrameBuffer(color_slots=(target,))
+        with fb.bind(), gpu.matrix.push_pop(), gpu.matrix.push_pop_projection():
+            gpu.matrix.load_identity()
+            gpu.matrix.load_projection_matrix(Matrix(((2 / 8, 0, 0, -1), (0, 2 / 8, 0, -1), (0, 0, -1, 0), (0, 0, 0, 1))))
+            gpu_util.draw_texture(tex, 0, 0, 8, 8)
+            stored[fmt] = np.asarray(fb.read_color(0, 0, 8, 8, 4, 0, 'FLOAT')).reshape(8, 8, 4)[4, 4, 0]
+    # linear 0.5 is shown as sRGB 0.735 either way
+    assert abs(stored['RGBA8'] - 0.735) < 0.01 and abs(stored['SRGB8_A8'] - 0.735) < 0.01, stored
+
+
+@test
+def pulsar_feedback_is_frame_rate_independent():
+    from livenodes.demos import pulsar
+    for ob in list(bpy.data.objects):
+        bpy.data.objects.remove(ob)
+    new_tree()
+    tree = pulsar.build(bpy.context)
+    tree.nodes["3D Scene"].mute = True
+    SCENE.livenodes.res_x, SCENE.livenodes.res_y = 96, 54
+    SCENE.livenodes.time_mode = 'TIMELINE'
+    means = {}
+    try:
+        for fps in (30, 60):
+            ENGINE.reset()
+            for f in range(1, int(2.0 * fps) + 1):
+                ENGINE.tick(SCENE, now_time=f / fps, dt=1.0 / fps)
+            means[fps] = float(pixels(out(tree, tree.nodes["Trail Loop"]))[..., :3].mean())
+    finally:
+        SCENE.livenodes.time_mode = 'REALTIME'
+        SCENE.livenodes.res_x, SCENE.livenodes.res_y = 64, 36
+        bpy.data.node_groups.remove(tree)
+    assert means[30] > 0.005, means
+    assert abs(means[60] / means[30] - 1.0) < 0.15, means
+
+
+@test
+def mp4_recording_is_finalised_on_stop_and_plays_back():
+    try:
+        import cv2
+    except ImportError:
+        print("    (skipped: opencv not installed)")
+        return
+    t = new_tree()
+    d = tempfile.mkdtemp()
+    ramp = node(t, "LN_RampTOP", angle=math.pi / 2)
+    rec = node(t, "LN_MovieFileOutTOP", filepath=os.path.join(d, "clip"), fmt='MP4', record=True, fps=30.0)
+    link(t, ramp, rec)
+    cook(12)
+    no_errors()
+    ENGINE.stop()  # must finalise the file while the node is still "recording"
+    path = os.path.join(d, "clip.mp4")
+    cap = cv2.VideoCapture(path)
+    frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+    assert frames == 12, frames
+    # and Movie File In plays it back, right side up
+    t2 = new_tree()
+    mov = node(t2, "LN_MovieFileTOP", filepath=path)
+    cook(2)
+    no_errors()
+    px = pixels(out(t2, mov, "Out"))
+    assert px.shape[:2] == (36, 64) and px[-2, 32, 0] > px[1, 32, 0] + 0.3, (px[-2, 32], px[1, 32])  # white on top
+    assert out(t2, mov, "Info").get("length") == 12.0
+    ENGINE.stop()
+
+
+@test
 def timeline_mode_is_deterministic():
     t = new_tree()
     lfo = node(t, "LN_LfoCHOP", frequency=0.5)

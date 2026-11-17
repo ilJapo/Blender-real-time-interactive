@@ -1,6 +1,5 @@
 """Drawing textures in the UI: node previews, backdrop and output windows."""
 import bpy
-import gpu
 
 from ..core import gpu_util
 from ..core.engine import ENGINE
@@ -92,9 +91,8 @@ def draw_output_window():
     if entry is None:
         return
     region = context.region
-    gpu.state.blend_set('NONE')
-    fb = gpu.state.active_framebuffer_get()
-    fb.clear(color=(0.0, 0.0, 0.0, 1.0))
+    # paint the region black instead of clearing: a clear can reach past this region
+    gpu_util.draw_rect(0, 0, region.width, region.height)
     tex = _texture_of(*entry)
     if tex is None:
         return

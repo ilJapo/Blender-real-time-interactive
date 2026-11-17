@@ -252,23 +252,24 @@ class LN_RenderTOP(LNTopNode, bpy.types.Node):
         depsgraph = bpy.context.evaluated_depsgraph_get()
         view_matrix = cam.matrix_world.inverted()
         proj = cam.calc_matrix_camera(depsgraph, x=w, y=h, scale_x=scene.render.pixel_aspect_x, scale_y=scene.render.pixel_aspect_y)
-        shading = space.shading
-        old = shading.type
-        # grid, axes, outlines and gizmos belong to the editor, not to the image
-        old_overlays, old_gizmo = space.overlay.show_overlays, space.show_gizmo
+        # Grid, axes, outlines and gizmos belong to the editor, not to the image. Properties
+        # are only touched when they differ: every write re-tags the 3D view for redraw.
+        changed = []
+        wanted = [(space.overlay, "show_overlays", False), (space, "show_gizmo", False)]
         if self.shading != 'VIEWPORT':
-            shading.type = self.shading
-        space.overlay.show_overlays = False
-        space.show_gizmo = False
+            wanted.append((space.shading, "type", self.shading))
+        for owner, attr, value in wanted:
+            old = getattr(owner, attr)
+            if old != value:
+                setattr(owner, attr, value)
+                changed.append((owner, attr, old))
         try:
             tgt.off.draw_view3d(scene, bpy.context.view_layer if bpy.context.view_layer else scene.view_layers[0],
                                 space, region, view_matrix, proj, do_color_management=False,
                                 draw_background=not self.transparent)
         finally:
-            if shading.type != old:
-                shading.type = old
-            space.overlay.show_overlays = old_overlays
-            space.show_gizmo = old_gizmo
+            for owner, attr, old in reversed(changed):
+                setattr(owner, attr, old)
         return tgt.texture
 
 
@@ -494,14 +495,17 @@ class LN_MovieFileOutTOP(LNNode, bpy.types.Node):
         px = gpu_util.read_pixels(tex)
         if self.fmt == 'MP4':
             cv2 = deps.require("cv2")
-            if "writer" not in st:
+            size = (tex.width, tex.height)
+            key = st.get("writer_key")
+            if key is None:
                 os.makedirs(os.path.dirname(base) or ".", exist_ok=True)
-                st["writer"] = cv2.VideoWriter(base + ".mp4", cv2.VideoWriter_fourcc(*"mp4v"), self.fps, (tex.width, tex.height))
-                st["size"] = (tex.width, tex.height)
-            if st["size"] != (tex.width, tex.height):
+                key = st["writer_key"] = (ctx.key, base + ".mp4", size)
+            if key[2] != size:
                 raise ValueError("resolution changed while recording")
+            # a service: Stop closes it, so the file is always finalised
+            writer = services.get("movie_out", key, lambda: _Mp4Writer(cv2, key[1], self.fps, size))
             rgb = np.clip(np.power(np.clip(px[::-1, :, :3], 0, 1), 1 / 2.2) * 255.0 + 0.5, 0, 255).astype(np.uint8)
-            st["writer"].write(np.ascontiguousarray(rgb[:, :, ::-1]))
+            writer.write(np.ascontiguousarray(rgb[:, :, ::-1]))
         else:
             st["count"] = st.get("count", 0) + 1
             holder = st.get("img")
@@ -521,10 +525,23 @@ class LN_MovieFileOutTOP(LNNode, bpy.types.Node):
 
     @staticmethod
     def _finish(st):
-        writer = st.pop("writer", None)
-        if writer is not None:
-            writer.release()
+        key = st.pop("writer_key", None)
+        if key is not None:
+            services.drop("movie_out", key)
         st.pop("count", None)
+
+
+class _Mp4Writer:
+    def __init__(self, cv2, path, fps, size):
+        self.writer = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
+        if not self.writer.isOpened():
+            raise RuntimeError(f"cannot write {path!r}")
+
+    def write(self, frame):
+        self.writer.write(frame)
+
+    def close(self):
+        self.writer.release()
 
 
 class _ImageHolder:
